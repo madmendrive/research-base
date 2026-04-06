@@ -1,0 +1,16 @@
+# Data & models (large, per-company)
+data/
+models/
+
+# Environment
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs & temp
+*.log
+nohup.out

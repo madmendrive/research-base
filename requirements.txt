@@ -1,0 +1,13 @@
+requests
+beautifulsoup4
+lxml
+openpyxl
+anthropic
+click
+playwright
+google-api-python-client
+pdfplumber
+flask
+markdown
+python-dotenv
+tzdata

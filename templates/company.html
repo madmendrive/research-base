@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}{{ ticker }} — {{ company.name }}{% endblock %}
+{% block page_title %}{{ company.name }} ({{ ticker }}){% endblock %}
+
+{% block content %}
+<div class="company-header">
+    <h2>{{ company.name }}</h2>
+    <span class="ticker">{{ ticker }}</span>
+    <span class="meta">{{ company.market }} | FY ends {{ company.fiscal_year_end or 'December' }}</span>
+    {% if company.ir_url %}
+    <span class="meta">| <a href="{{ company.ir_url }}" target="_blank">IR Website</a></span>
+    {% endif %}
+</div>
+
+<div class="section" style="margin-bottom: 16px;">
+    <h3>Recent Headlines
+        <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+            72h |
+            <a href="#" onclick="fetchCompanyNews(); return false;">refresh</a>
+        </span>
+    </h3>
+    <div class="section-body">
+        <div id="company-news-feed" class="news-feed">
+            <div style="padding: 12px; color: var(--text-secondary); font-size: 13px;">Loading headlines...</div>
+        </div>
+    </div>
+</div>
+
+<div class="tabs">
+    <div class="tab active" data-tab="tab-filings">Filings</div>
+    <div class="tab" data-tab="tab-research">Research</div>
+    <div class="tab" data-tab="tab-classified">All Documents</div>
+</div>
+
+<div id="tab-filings" class="tab-content active">
+    {% if filings %}
+    <table class="data-table">
+        <thead><tr><th>Type</th><th>Period</th><th>Filename</th><th>Size</th></tr></thead>
+        <tbody>
+        {% for f in filings %}
+        <tr>
+            <td>{{ f.form_type }}</td>
+            <td class="num" style="font-family: var(--font-mono);">{{ f.fiscal_period or f.get('period', '') }}</td>
+            <td><a href="/file/{{ ticker }}/{{ f.path }}" target="_blank">{{ f.filename }}</a></td>
+            <td class="num">{{ f.size_kb }} KB</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-secondary)">No organized filings. Run <code>download-materials {{ ticker }}</code> to download.</p>
+    {% endif %}
+</div>
+
+<div id="tab-research" class="tab-content">
+    {% if research_summary_html %}
+    <div class="section">
+        <h3>Research Summary</h3>
+        <div class="md-content">{{ research_summary_html|safe }}</div>
+    </div>
+    {% endif %}
+
+    {% if research_notes %}
+    <div class="section">
+        <h3>Stored Research Notes</h3>
+        {% for note in research_notes %}
+        <div class="note-item">
+            <div class="note-header">
+                <span class="date">{{ note.date or '?' }}</span>
+                <span class="source">{{ note.source }}</span>
+                <span class="title">{{ note.title }}</span>
+                {% if note.rating %}<span class="badge">{{ note.rating }}</span>{% endif %}
+                {% if note.target_price %}<span class="num" style="font-family: var(--font-mono);">TP: {{ note.target_price }}</span>{% endif %}
+                <span class="arrow">&#9654;</span>
+            </div>
+            <div class="note-body">
+                {% if note.analysis_report %}
+                <div class="md-content">{{ note.analysis_report_html|safe }}</div>
+                {% elif note.detailed_summary %}
+                <p>{{ note.detailed_summary }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p style="color: var(--text-secondary)">No research notes stored for {{ ticker }}.</p>
+    {% endif %}
+</div>
+
+<div id="tab-classified" class="tab-content">
+    {% if classified_files %}
+    <table class="data-table">
+        <thead><tr><th>Filename</th><th>Type</th><th>Period</th><th>Source</th></tr></thead>
+        <tbody>
+        {% for f in classified_files %}
+        <tr>
+            <td style="font-size: 12px;">{{ f.filename }}</td>
+            <td>{{ f.document_type }}</td>
+            <td class="num">{{ f.period or '' }}</td>
+            <td style="color: var(--text-secondary); font-size: 12px;">{{ f.source_dir }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-secondary)">No classified documents.</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function renderNewsFeed(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!items || items.length === 0) {
+        container.innerHTML = '<div style="padding: 12px; color: var(--text-secondary); font-size: 13px;">No headlines found from approved sources.</div>';
+        return;
+    }
+    let html = '';
+    for (const item of items) {
+        const src = item.source || '';
+        const time = item.time || '';
+        const link = item.link || '#';
+        const tooltip = item.original_title ? ` title="${item.original_title}"` : '';
+        const langTag = item.lang === 'zh' ? '<span style="font-size:9px;background:var(--bg-tertiary);border:1px solid var(--border-color);padding:0 3px;border-radius:2px;margin-left:4px;color:var(--text-secondary);">ZH</span>' : '';
+        html += `<div class="news-item" style="display: flex; align-items: baseline; gap: 8px;">
+            <div style="flex: 1; min-width: 0;">
+                <a href="${link}" target="_blank"${tooltip} style="font-weight: 500; color: var(--text-primary); text-decoration: none;">${item.title}</a>${langTag}
+                <span style="font-size: 11px; color: var(--text-secondary); margin-left: 6px;">${src}</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); white-space: nowrap; flex-shrink: 0;">${time}</div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+function fetchCompanyNews() {
+    document.getElementById('company-news-feed').innerHTML = '<div style="padding: 12px; color: var(--text-secondary);">Fetching...</div>';
+    fetch('/api/news/company/{{ ticker }}')
+        .then(r => r.json())
+        .then(data => renderNewsFeed('company-news-feed', data.items))
+        .catch(() => {
+            document.getElementById('company-news-feed').innerHTML = '<div style="padding: 12px; color: var(--text-secondary);">Failed to load headlines.</div>';
+        });
+}
+
+fetchCompanyNews();
+</script>
+{% endblock %}

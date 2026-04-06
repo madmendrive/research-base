@@ -1,0 +1,1054 @@
+{
+  "AAPL": {
+    "name": "Apple Inc",
+    "market": "US",
+    "ir_url": "https://investor.apple.com",
+    "sec_cik": "0000320193",
+    "fiscal_year_end": "September"
+  },
+  "4004 JT": {
+    "name": "Resonac Holdings",
+    "market": "JP",
+    "ir_url": "https://www.resonac.com/ir",
+    "edinet_code": "E00751"
+  },
+  "2330 TT": {
+    "name": "TSMC",
+    "market": "TW",
+    "ir_url": "https://investor.tsmc.com",
+    "twse_code": "2330"
+  },
+  "005930 KS": {
+    "name": "Samsung Electronics",
+    "market": "KR",
+    "ir_url": "https://www.samsung.com/global/ir/",
+    "dart_code": "00126380"
+  },
+  "LITE": {
+    "name": "Lumentum Holdings",
+    "market": "US",
+    "ir_url": "https://investor.lumentum.com",
+    "sec_cik": "0001633978",
+    "fiscal_year_end": "June"
+  },
+  "ASML": {
+    "name": "ASML Holding",
+    "market": "US",
+    "ir_url": "https://www.asml.com/en/investors",
+    "sec_cik": "0000937966",
+    "fiscal_year_end": "December"
+  },
+  "AMD": {
+    "name": "Advanced Micro Devices",
+    "market": "US",
+    "ir_url": "https://ir.amd.com",
+    "fiscal_year_end": "December",
+    "sec_cik": "0000002488"
+  },
+  "AMKR": {
+    "name": "Amkor Technology",
+    "market": "US",
+    "ir_url": "https://ir.amkor.com",
+    "fiscal_year_end": "December",
+    "sec_cik": "0001047127"
+  },
+  "KLAC": {
+    "name": "KLA Corporation",
+    "market": "US",
+    "ir_url": "https://ir.kla.com",
+    "fiscal_year_end": "June",
+    "sec_cik": "0000319201"
+  },
+  "5803 JT": {
+    "name": "Fujikura Ltd",
+    "market": "JP",
+    "ir_url": "https://www.fujikura.co.jp/eng/ir/",
+    "edinet_code": "E01334",
+    "fiscal_year_end": "March"
+  },
+  "5802 JT": {
+    "name": "Sumitomo Electric Industries",
+    "market": "JP",
+    "ir_url": "https://sumitomoelectric.com/investor-relations",
+    "ir_extra_urls": [
+      "https://sumitomoelectric.com/ir/library"
+    ],
+    "edinet_code": "E01333",
+    "fiscal_year_end": "March"
+  },
+  "5801 JT": {
+    "name": "Furukawa Electric Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.furukawaelectric.com/en/ir/",
+    "ir_extra_urls": [
+      "https://www.furukawaelectric.com/en/ir/library/finalreport/",
+      "https://www.furukawaelectric.com/en/ir/library/",
+      "https://www.furukawaelectric.com/en/release/management.html"
+    ],
+    "edinet_code": "E01332",
+    "fiscal_year_end": "March"
+  },
+  "4062 JT": {
+    "name": "Ibiden Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.ibiden.com/ir/",
+    "edinet_code": "E00775",
+    "fiscal_year_end": "March"
+  },
+  "2383 TT": {
+    "name": "Elite Material Co",
+    "market": "TW",
+    "ir_url": "https://www.emctw.com/en-global/annual_reports/index",
+    "ir_extra_urls": [
+      "https://www.emctw.com/en-global/presentation_materials/index",
+      "https://www.emctw.com/en-global/quarterly_results/index"
+    ],
+    "twse_code": "2383",
+    "fiscal_year_end": "December"
+  },
+  "3037 TT": {
+    "name": "Unimicron Technology",
+    "market": "TW",
+    "ir_url": "https://www.unimicron.com/en/money01.html",
+    "ir_extra_urls": [
+      "https://www.unimicron.com/en/money02.html",
+      "https://www.unimicron.com/en/money03.html"
+    ],
+    "twse_code": "3037",
+    "fiscal_year_end": "December"
+  },
+  "6857 JT": {
+    "name": "Advantest Corp",
+    "market": "JP",
+    "ir_url": "https://www.advantest.com/investors",
+    "edinet_code": "E01950",
+    "fiscal_year_end": "March"
+  },
+  "6770 JT": {
+    "name": "Alps Alpine Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.alpsalpine.com/e/ir/",
+    "edinet_code": "E01793",
+    "fiscal_year_end": "March"
+  },
+  "6754 JT": {
+    "name": "Anritsu Corp",
+    "market": "JP",
+    "ir_url": "https://www.anritsu.com/en-us/ir",
+    "edinet_code": "E01774",
+    "fiscal_year_end": "March"
+  },
+  "6407 JT": {
+    "name": "CKD Corp",
+    "market": "JP",
+    "ir_url": "https://www.ckd.co.jp/english/ir/",
+    "edinet_code": "E01909",
+    "fiscal_year_end": "March"
+  },
+  "6383 JT": {
+    "name": "Daifuku Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.daifuku.com/ir/",
+    "edinet_code": "E01551",
+    "fiscal_year_end": "December"
+  },
+  "4980 JT": {
+    "name": "Dexerials Corp",
+    "market": "JP",
+    "ir_url": "https://www.dexerials.jp/en/ir/",
+    "edinet_code": "E31633",
+    "fiscal_year_end": "March"
+  },
+  "6146 JT": {
+    "name": "Disco Corp",
+    "market": "JP",
+    "ir_url": "https://www.disco.co.jp/eg/ir/",
+    "edinet_code": "E01506",
+    "fiscal_year_end": "March"
+  },
+  "6954 JT": {
+    "name": "Fanuc Corp",
+    "market": "JP",
+    "ir_url": "https://www.fanuc.co.jp/en/ir/",
+    "edinet_code": "E01946",
+    "fiscal_year_end": "March"
+  },
+  "285A JT": {
+    "name": "Kioxia Holdings Corp",
+    "market": "JP",
+    "ir_url": "https://www.kioxia-holdings.com/en-jp/ir/",
+    "edinet_code": "E35948",
+    "fiscal_year_end": "March"
+  },
+  "6526 JT": {
+    "name": "Socionext Inc",
+    "market": "JP",
+    "ir_url": "https://www.socionext.com/en/ir/",
+    "edinet_code": "E37978",
+    "fiscal_year_end": "March"
+  },
+  "6920 JT": {
+    "name": "Lasertec Corp",
+    "market": "JP",
+    "ir_url": "https://www.lasertec.co.jp/en/ir/",
+    "edinet_code": "E01991",
+    "fiscal_year_end": "June"
+  },
+  "9880 JT": {
+    "name": "Innotech Corp",
+    "market": "JP",
+    "ir_url": "https://www.innotech.co.jp/english/ir/",
+    "edinet_code": "E02724",
+    "fiscal_year_end": "March"
+  },
+  "5344 JT": {
+    "name": "MARUWA Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.maruwa-g.com/e/ir/",
+    "edinet_code": "E01210",
+    "fiscal_year_end": "March"
+  },
+  "3110 JT": {
+    "name": "Nitto Boseki Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.nittobo.co.jp/english/ir/",
+    "edinet_code": "E00542",
+    "fiscal_year_end": "March"
+  },
+  "7760 JT": {
+    "name": "IMV Corp",
+    "market": "JP",
+    "ir_url": "https://www.imv.co.jp/english/ir/",
+    "edinet_code": "E02352",
+    "fiscal_year_end": "September"
+  },
+  "4975 JT": {
+    "name": "JCU Corp",
+    "market": "JP",
+    "ir_url": "https://www.jcu-i.com/en/ir/",
+    "edinet_code": "E01065",
+    "fiscal_year_end": "March"
+  },
+  "6861 JT": {
+    "name": "Keyence Corp",
+    "market": "JP",
+    "ir_url": "https://www.keyence.co.jp/company/ir/",
+    "edinet_code": "E01967",
+    "fiscal_year_end": "March"
+  },
+  "6525 JT": {
+    "name": "KOKUSAI ELECTRIC Corp",
+    "market": "JP",
+    "ir_url": "https://www.kokusai-electric.com/en/ir/",
+    "edinet_code": "E37488",
+    "fiscal_year_end": "March"
+  },
+  "6323 JT": {
+    "name": "RORZE Corp",
+    "market": "JP",
+    "ir_url": "https://www.rorze.com/en/ir/",
+    "edinet_code": "E02328",
+    "fiscal_year_end": "February"
+  },
+  "6723 JT": {
+    "name": "Renesas Electronics Corp",
+    "market": "JP",
+    "ir_url": "https://www.renesas.com/us/en/about/investor-relations",
+    "edinet_code": "E02081",
+    "fiscal_year_end": "December"
+  },
+  "268A JT": {
+    "name": "Rigaku Holdings Corp",
+    "market": "JP",
+    "ir_url": "https://www.rigaku-holdings.com/en/ir/",
+    "edinet_code": "E39892",
+    "fiscal_year_end": "March"
+  },
+  "6777 JT": {
+    "name": "santec Holdings Corp",
+    "market": "JP",
+    "ir_url": "https://www.santec.com/en/ir/",
+    "edinet_code": "E01870",
+    "fiscal_year_end": "March"
+  },
+  "7735 JT": {
+    "name": "SCREEN Holdings Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.screen.co.jp/en/ir",
+    "edinet_code": "E02288",
+    "fiscal_year_end": "March"
+  },
+  "6834 JT": {
+    "name": "Seikoh Giken Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.seikohgiken.co.jp/en/ir/",
+    "edinet_code": "E01717",
+    "fiscal_year_end": "March"
+  },
+  "4063 JT": {
+    "name": "Shin-Etsu Chemical Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.shinetsu.co.jp/en/ir/",
+    "edinet_code": "E00776",
+    "fiscal_year_end": "March"
+  },
+  "3436 JT": {
+    "name": "SUMCO Corp",
+    "market": "JP",
+    "ir_url": "https://www.sumcosi.com/english/ir/",
+    "edinet_code": "E02103",
+    "fiscal_year_end": "December"
+  },
+  "6976 JT": {
+    "name": "Taiyo Yuden Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.ty-top.com/ir/",
+    "edinet_code": "E01824",
+    "fiscal_year_end": "March"
+  },
+  "6762 JT": {
+    "name": "TDK Corp",
+    "market": "JP",
+    "ir_url": "https://www.tdk.com/en/ir",
+    "edinet_code": "E01780",
+    "fiscal_year_end": "March"
+  },
+  "6481 JT": {
+    "name": "THK Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.thk.com/eng/ir/",
+    "edinet_code": "E01678",
+    "fiscal_year_end": "December"
+  },
+  "8035 JT": {
+    "name": "Tokyo Electron Ltd",
+    "market": "JP",
+    "ir_url": "https://www.tel.com/ir/",
+    "edinet_code": "E02652",
+    "fiscal_year_end": "March"
+  },
+  "7729 JT": {
+    "name": "Tokyo Seimitsu Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.accretech.jp/english/ir/",
+    "edinet_code": "E02289",
+    "fiscal_year_end": "March"
+  },
+  "4704 JT": {
+    "name": "Trend Micro Inc",
+    "market": "JP",
+    "ir_url": "https://www.trendmicro.com/en_us/about/investor-relations.html",
+    "edinet_code": "E04999",
+    "fiscal_year_end": "December"
+  },
+  "6506 JT": {
+    "name": "Yaskawa Electric Corp",
+    "market": "JP",
+    "ir_url": "https://www.yaskawa-global.com/ir",
+    "edinet_code": "E01741",
+    "fiscal_year_end": "February"
+  },
+  "002790 KS": {
+    "name": "Amorepacific Holdings",
+    "market": "KR",
+    "ir_url": "https://www.apgroup.com/int/en/investors/",
+    "dart_code": "00154462",
+    "fiscal_year_end": "December"
+  },
+  "000150 KS": {
+    "name": "Doosan Corp",
+    "market": "KR",
+    "ir_url": "https://www.doosan.com/en/ir/",
+    "dart_code": "00117212",
+    "fiscal_year_end": "December"
+  },
+  "012510 KS": {
+    "name": "Douzone Bizon",
+    "market": "KR",
+    "ir_url": "https://www.douzone.com/en/ir/",
+    "dart_code": "00172291",
+    "fiscal_year_end": "December"
+  },
+  "030520 KS": {
+    "name": "Hancom Inc",
+    "market": "KR",
+    "ir_url": "https://www.hancom.com/ir/",
+    "dart_code": "00204262",
+    "fiscal_year_end": "December"
+  },
+  "012450 KS": {
+    "name": "Hanwha Aerospace",
+    "market": "KR",
+    "ir_url": "https://www.hanwhaaerospace.com/en/ir/",
+    "dart_code": "00126566",
+    "fiscal_year_end": "December"
+  },
+  "008770 KS": {
+    "name": "Hotel Shilla",
+    "market": "KR",
+    "ir_url": "https://www.shilla.net/ir/",
+    "dart_code": "00165680",
+    "fiscal_year_end": "December"
+  },
+  "007660 KS": {
+    "name": "ISU Petasys Co Ltd",
+    "market": "KR",
+    "ir_url": "https://www.isupetasys.com/en/ir/",
+    "dart_code": "00107613",
+    "fiscal_year_end": "December"
+  },
+  "035720 KS": {
+    "name": "Kakao Corp",
+    "market": "KR",
+    "ir_url": "https://www.kakaocorp.com/page/ir/",
+    "dart_code": "00258801",
+    "fiscal_year_end": "December"
+  },
+  "051900 KS": {
+    "name": "LG H&H (Household & Health Care)",
+    "market": "KR",
+    "ir_url": "https://www.lgcorp.com/ir/",
+    "dart_code": "00356370",
+    "fiscal_year_end": "December"
+  },
+  "011070 KS": {
+    "name": "LG Innotek Co Ltd",
+    "market": "KR",
+    "ir_url": "https://www.lginnotek.com/ir/",
+    "dart_code": "00105961",
+    "fiscal_year_end": "December"
+  },
+  "079550 KS": {
+    "name": "LIG Nex1 Co Ltd",
+    "market": "KR",
+    "ir_url": "https://www.lignex1.com/en/ir/",
+    "dart_code": "00503668",
+    "fiscal_year_end": "December"
+  },
+  "035420 KS": {
+    "name": "NAVER Corp",
+    "market": "KR",
+    "ir_url": "https://www.navercorp.com/en/ir/",
+    "dart_code": "00266961",
+    "fiscal_year_end": "December"
+  },
+  "036570 KS": {
+    "name": "NCSoft Corp",
+    "market": "KR",
+    "ir_url": "https://kr.ncsoft.com/en/ir/",
+    "dart_code": "00261443",
+    "fiscal_year_end": "December"
+  },
+  "009150 KS": {
+    "name": "Samsung Electro-Mechanics",
+    "market": "KR",
+    "ir_url": "https://www.samsungsem.com/global/ir/",
+    "dart_code": "00126371",
+    "fiscal_year_end": "December"
+  },
+  "018260 KS": {
+    "name": "Samsung SDS Co Ltd",
+    "market": "KR",
+    "ir_url": "https://www.samsungsds.com/en/ir/",
+    "dart_code": "00126186",
+    "fiscal_year_end": "December"
+  },
+  "000660 KS": {
+    "name": "SK Hynix Inc",
+    "market": "KR",
+    "ir_url": "https://www.skhynix.com/ir/",
+    "dart_code": "00164779",
+    "fiscal_year_end": "December"
+  },
+  "1303 TT": {
+    "name": "Nan Ya Plastics Corp",
+    "market": "TW",
+    "ir_url": "https://www.npc.com.tw/j2npc/enus/investor/Annual%20Reports",
+    "twse_code": "1303",
+    "fiscal_year_end": "December"
+  },
+  "1590 TT": {
+    "name": "AirTAC International Group",
+    "market": "TW",
+    "ir_url": "https://us-en.airtac.com/tzr.aspx?c_kind=5",
+    "twse_code": "1590",
+    "fiscal_year_end": "December"
+  },
+  "2308 TT": {
+    "name": "Delta Electronics Inc",
+    "market": "TW",
+    "ir_url": "https://www.deltaww.com/en-US/investors/financials#financial-reports",
+    "twse_code": "2308",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.deltaww.com/en-US/investors/annual-Reports"
+    ]
+  },
+  "2317 TT": {
+    "name": "Hon Hai Precision Industry",
+    "market": "TW",
+    "ir_url": "https://www.honhai.com/en-us/investor-relations",
+    "twse_code": "2317",
+    "fiscal_year_end": "December"
+  },
+  "2324 TT": {
+    "name": "Compal Electronics Inc",
+    "market": "TW",
+    "ir_url": "https://www.compal.com/investor-relations",
+    "twse_code": "2324",
+    "fiscal_year_end": "December"
+  },
+  "2337 TT": {
+    "name": "Macronix International",
+    "market": "TW",
+    "ir_url": "https://www.mxic.com.tw/en-us/about/investor-relations/Pages/financial-reports.aspx",
+    "twse_code": "2337",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.mxic.com.tw/en-us/about/investor-relations/Pages/quarterly-results.aspx"
+    ]
+  },
+  "2345 TT": {
+    "name": "Accton Technology Corp",
+    "market": "TW",
+    "ir_url": "https://www.accton.com/investor/",
+    "twse_code": "2345",
+    "fiscal_year_end": "December"
+  },
+  "2353 TT": {
+    "name": "Acer Inc",
+    "market": "TW",
+    "ir_url": "https://www.acer.com/corporate/en/investor-relations/financials/annual-reports",
+    "twse_code": "2353",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.acer.com/corporate/en/investor-relations/financials/quarterly-reports"
+    ]
+  },
+  "2357 TT": {
+    "name": "ASUSTeK Computer Inc",
+    "market": "TW",
+    "ir_url": "https://www.asus.com/event/investor/",
+    "twse_code": "2357",
+    "fiscal_year_end": "December"
+  },
+  "2360 TT": {
+    "name": "Chroma ATE Inc",
+    "market": "TW",
+    "ir_url": "https://www.chromaate.com/en/investors/quarterly_results",
+    "twse_code": "2360",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.chromaate.com/en/investors/financial_reports"
+    ]
+  },
+  "2395 TT": {
+    "name": "Advantech Co Ltd",
+    "market": "TW",
+    "ir_url": "https://www.advantech.com/en-us/investor/annual-report",
+    "twse_code": "2395",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.advantech.com/en-us/investor/quarterly-results"
+    ]
+  },
+  "2408 TT": {
+    "name": "Nanya Technology Corp",
+    "market": "TW",
+    "ir_url": "https://www.nanya.com/en/IR/39/Financial%20Reports",
+    "twse_code": "2408",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.nanya.com/en/IR/42/Annual%20Reports",
+      "https://www.nanya.com/en/IR/36/Monthly%20Revenue"
+    ]
+  },
+  "2409 TT": {
+    "name": "AUO Corp",
+    "market": "TW",
+    "ir_url": "https://www.auo.com/en-global/financial_results/index",
+    "twse_code": "2409",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.auo.com/en-global/investor_conference/index"
+    ]
+  },
+  "2454 TT": {
+    "name": "MediaTek Inc",
+    "market": "TW",
+    "ir_url": "https://corp.mediatek.com/investor-relations",
+    "twse_code": "2454",
+    "fiscal_year_end": "December"
+  },
+  "2474 TT": {
+    "name": "Catcher Technology Co Ltd",
+    "market": "TW",
+    "ir_url": "https://www.catcher-group.com/investor_financial.aspx",
+    "twse_code": "2474",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.catcher-group.com/investor_financial_fs.aspx"
+    ]
+  },
+  "3006 TT": {
+    "name": "Elite Semiconductor Memory",
+    "market": "TW",
+    "ir_url": "https://www.esmt.com.tw/en/Investor/Financial-Information",
+    "twse_code": "3006",
+    "fiscal_year_end": "December"
+  },
+  "3008 TT": {
+    "name": "Largan Precision Co Ltd",
+    "market": "TW",
+    "ir_url": "http://www.largan.com.tw/en/investor/finance",
+    "twse_code": "3008",
+    "fiscal_year_end": "December"
+  },
+  "3131 TT": {
+    "name": "Grand Process Technology",
+    "market": "TW",
+    "ir_url": "https://www.gptc.com.tw/en/investors/Investros/",
+    "twse_code": "3131",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.gptc.com.tw/en/investors/Stock-Information/"
+    ]
+  },
+  "3163 TT": {
+    "name": "Browave Corp",
+    "market": "TW",
+    "ir_url": "https://www.browave.com/Investors/",
+    "twse_code": "3163",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.browave.com/investors/Category/45"
+    ]
+  },
+  "3189 TT": {
+    "name": "Kinsus Interconnect Technology",
+    "market": "TW",
+    "ir_url": "https://www.kinsus.com.tw/en-global/Html/investor-services",
+    "twse_code": "3189",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.kinsus.com.tw/en-global/Download/financial-information"
+    ]
+  },
+  "3406 TT": {
+    "name": "Genius Electronic Optical",
+    "market": "TW",
+    "ir_url": "https://www.gseo.com/investor-relations",
+    "twse_code": "3406",
+    "fiscal_year_end": "December"
+  },
+  "3481 TT": {
+    "name": "Innolux Corp",
+    "market": "TW",
+    "ir_url": "https://www.innolux.com/en/ir/financials/annual_reports.html",
+    "twse_code": "3481",
+    "fiscal_year_end": "December"
+  },
+  "3661 TT": {
+    "name": "Alchip Technologies Ltd",
+    "market": "TW",
+    "ir_url": "https://www.alchip.com/investor/",
+    "twse_code": "3661",
+    "fiscal_year_end": "December"
+  },
+  "3665 TT": {
+    "name": "BizLink Holding Inc",
+    "market": "TW",
+    "ir_url": "https://www.bizlinktech.com/financial-information",
+    "twse_code": "3665",
+    "fiscal_year_end": "December"
+  },
+  "3711 TT": {
+    "name": "ASE Technology Holding",
+    "market": "TW",
+    "ir_url": "https://www.aseglobal.com/en/InvestorRelations",
+    "twse_code": "3711",
+    "fiscal_year_end": "December"
+  },
+  "4979 TT": {
+    "name": "LuxNet Corp",
+    "market": "TW",
+    "ir_url": "https://www.luxnetcorp.com.tw/en-US/investor-information",
+    "twse_code": "4979",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.luxnetcorp.com.tw/en-US/investor-information-140"
+    ]
+  },
+  "5269 TT": {
+    "name": "ASMedia Technology Inc",
+    "market": "TW",
+    "ir_url": "https://www.asmedia.com.tw/investors02-3.html",
+    "twse_code": "5269",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.asmedia.com.tw/investors02.html",
+      "https://www.asmedia.com.tw/investors02-2.html",
+      "https://www.asmedia.com.tw/investors02-4.html"
+    ]
+  },
+  "5274 TT": {
+    "name": "ASPEED Technology Inc",
+    "market": "TW",
+    "ir_url": "https://www.aspeedtech.com/investor/",
+    "twse_code": "5274",
+    "fiscal_year_end": "December"
+  },
+  "6187 TT": {
+    "name": "All Ring Tech Co Ltd",
+    "market": "TW",
+    "ir_url": "https://allring-tech.com.tw/index.php?id=132&index=2&lang=en&option=module&task=showlist",
+    "twse_code": "6187",
+    "fiscal_year_end": "December"
+  },
+  "6223 TT": {
+    "name": "MPI Corp",
+    "market": "TW",
+    "ir_url": "https://www.mpi.com.tw/en/investor/",
+    "twse_code": "6223",
+    "fiscal_year_end": "December"
+  },
+  "6442 TT": {
+    "name": "EZconn Corp",
+    "market": "TW",
+    "ir_url": "https://www.ezconn.com/en/investor/financial?financial-tab=monthly",
+    "twse_code": "6442",
+    "fiscal_year_end": "December"
+  },
+  "6488 TT": {
+    "name": "GlobalWafers Co Ltd",
+    "market": "TW",
+    "ir_url": "https://www.sas-globalwafers.com/en/investor/",
+    "twse_code": "6488",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.sas-globalwafers.com/en/investor/financial-information_en/"
+    ]
+  },
+  "6510 TT": {
+    "name": "Chunghwa Precision Test Tech",
+    "market": "TW",
+    "ir_url": "https://www.cht-pt.com.tw/eng/xccompdoc?xsmsid=0H066574157047621001",
+    "twse_code": "6510",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.cht-pt.com.tw/eng/xccompdoc?xsmsid=0L265368024209225653",
+      "https://www.cht-pt.com.tw/eng/xccompdoc?xsmsid=0H107601516710605896"
+    ]
+  },
+  "7769 TT": {
+    "name": "Hon Precision Inc",
+    "market": "TW",
+    "ir_url": "https://www.honprec.com/en/finance/",
+    "twse_code": "7769",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://www.honprec.com/en/stock/"
+    ]
+  },
+  "8046 TT": {
+    "name": "Nan Ya PCB Corp",
+    "market": "TW",
+    "ir_url": "https://www.nanyapcb.com.tw/nypcb/english/InvestorRelations/Shareholders/StockQuotes.aspx",
+    "twse_code": "8046",
+    "fiscal_year_end": "December"
+  },
+  "1802 TT": {
+    "name": "Taiwan Glass Industry Corp",
+    "market": "TW",
+    "ir_url": "https://www.taiwanglass.com/en/investor/",
+    "twse_code": "1802",
+    "fiscal_year_end": "December"
+  },
+  "6274 TT": {
+    "name": "Taiwan Union Technology Corp",
+    "market": "TW",
+    "ir_url": "https://www.tuc.com.tw/en/investor/",
+    "twse_code": "6274",
+    "fiscal_year_end": "December"
+  },
+  "2303 TT": {
+    "name": "United Microelectronics Corp",
+    "market": "TW",
+    "ir_url": "https://www.umc.com/en/IR/index",
+    "twse_code": "2303",
+    "fiscal_year_end": "December"
+  },
+  "5347 TT": {
+    "name": "Vanguard International Semiconductor",
+    "market": "TW",
+    "ir_url": "https://www.vis.com.tw/en/investor/",
+    "twse_code": "5347",
+    "fiscal_year_end": "December"
+  },
+  "1605 TT": {
+    "name": "Walsin Lihwa Corp",
+    "market": "TW",
+    "ir_url": "https://www.walsin.com/en/investor/",
+    "twse_code": "1605",
+    "fiscal_year_end": "December"
+  },
+  "3105 TT": {
+    "name": "WIN Semiconductors Corp",
+    "market": "TW",
+    "ir_url": "https://www.winfoundry.com/en/investor/",
+    "twse_code": "3105",
+    "fiscal_year_end": "December"
+  },
+  "2344 TT": {
+    "name": "Winbond Electronics Corp",
+    "market": "TW",
+    "ir_url": "https://www.winbond.com/hq/investor/",
+    "twse_code": "2344",
+    "fiscal_year_end": "December"
+  },
+  "3231 TT": {
+    "name": "Wistron Corp",
+    "market": "TW",
+    "ir_url": "https://www.wistron.com/investor-relations",
+    "twse_code": "3231",
+    "fiscal_year_end": "December"
+  },
+  "6669 TT": {
+    "name": "Wiwynn Corp",
+    "market": "TW",
+    "ir_url": "https://www.wiwynn.com/investor-relations",
+    "twse_code": "6669",
+    "fiscal_year_end": "December"
+  },
+  "2327 TT": {
+    "name": "Yageo Corp",
+    "market": "TW",
+    "ir_url": "https://www.yageo.com/en/investor/",
+    "twse_code": "2327",
+    "fiscal_year_end": "December"
+  },
+  "4958 TT": {
+    "name": "Zhen Ding Technology Holding",
+    "market": "TW",
+    "ir_url": "https://www.zdtco.com/en/investor/",
+    "twse_code": "4958",
+    "fiscal_year_end": "December"
+  },
+  "ADEA": {
+    "name": "Adeia Inc",
+    "market": "US",
+    "ir_url": "https://ir.adeia.com",
+    "sec_cik": "0001803696",
+    "fiscal_year_end": "December"
+  },
+  "AMAT": {
+    "name": "Applied Materials Inc",
+    "market": "US",
+    "ir_url": "https://ir.appliedmaterials.com",
+    "sec_cik": "0000006951",
+    "fiscal_year_end": "October"
+  },
+  "AMZN": {
+    "name": "Amazon.com Inc",
+    "market": "US",
+    "ir_url": "https://ir.aboutamazon.com",
+    "sec_cik": "0001018724",
+    "fiscal_year_end": "December"
+  },
+  "ANET": {
+    "name": "Arista Networks Inc",
+    "market": "US",
+    "ir_url": "https://investors.arista.com",
+    "sec_cik": "0001596532",
+    "fiscal_year_end": "December"
+  },
+  "ARM": {
+    "name": "ARM Holdings PLC",
+    "market": "US",
+    "ir_url": "https://investors.arm.com",
+    "sec_cik": "0001973239",
+    "fiscal_year_end": "March"
+  },
+  "AVGO": {
+    "name": "Broadcom Inc",
+    "market": "US",
+    "ir_url": "https://investors.broadcom.com",
+    "sec_cik": "0001730168",
+    "fiscal_year_end": "November"
+  },
+  "CIEN": {
+    "name": "Ciena Corp",
+    "market": "US",
+    "ir_url": "https://investor.ciena.com",
+    "sec_cik": "0000936395",
+    "fiscal_year_end": "October"
+  },
+  "COHR": {
+    "name": "Coherent Corp",
+    "market": "US",
+    "ir_url": "https://ir.coherent.com",
+    "sec_cik": "0000820318",
+    "fiscal_year_end": "June"
+  },
+  "CRDO": {
+    "name": "Credo Technology Group",
+    "market": "US",
+    "ir_url": "https://investor.credosemi.com",
+    "sec_cik": "0001807794",
+    "fiscal_year_end": "April"
+  },
+  "DELL": {
+    "name": "Dell Technologies Inc",
+    "market": "US",
+    "ir_url": "https://investors.delltechnologies.com",
+    "sec_cik": "0001571996",
+    "fiscal_year_end": "January"
+  },
+  "FORM": {
+    "name": "FormFactor Inc",
+    "market": "US",
+    "ir_url": "https://ir.formfactor.com",
+    "sec_cik": "0001039399",
+    "fiscal_year_end": "December"
+  },
+  "GFS": {
+    "name": "GlobalFoundries Inc",
+    "market": "US",
+    "ir_url": "https://investors.gf.com",
+    "sec_cik": "0001709048",
+    "fiscal_year_end": "December"
+  },
+  "GLW": {
+    "name": "Corning Inc",
+    "market": "US",
+    "ir_url": "https://investor.corning.com",
+    "sec_cik": "0000024741",
+    "fiscal_year_end": "December"
+  },
+  "HPE": {
+    "name": "Hewlett Packard Enterprise",
+    "market": "US",
+    "ir_url": "https://investors.hpe.com",
+    "sec_cik": "0001645590",
+    "fiscal_year_end": "October"
+  },
+  "HPQ": {
+    "name": "HP Inc",
+    "market": "US",
+    "ir_url": "https://investor.hp.com",
+    "sec_cik": "0000047217",
+    "fiscal_year_end": "October"
+  },
+  "IBM": {
+    "name": "International Business Machines",
+    "market": "US",
+    "ir_url": "https://www.ibm.com/investor",
+    "sec_cik": "0000051143",
+    "fiscal_year_end": "December"
+  },
+  "INTC": {
+    "name": "Intel Corp",
+    "market": "US",
+    "ir_url": "https://www.intc.com/investor-relations",
+    "sec_cik": "0000050863",
+    "fiscal_year_end": "December"
+  },
+  "LRCX": {
+    "name": "Lam Research Corp",
+    "market": "US",
+    "ir_url": "https://investor.lamresearch.com",
+    "sec_cik": "0000707549",
+    "fiscal_year_end": "June"
+  },
+  "MU": {
+    "name": "Micron Technology Inc",
+    "market": "US",
+    "ir_url": "https://investors.micron.com",
+    "sec_cik": "0000723125",
+    "fiscal_year_end": "September"
+  },
+  "NVDA": {
+    "name": "NVIDIA Corp",
+    "market": "US",
+    "ir_url": "https://investor.nvidia.com",
+    "sec_cik": "0001045810",
+    "fiscal_year_end": "January"
+  },
+  "ORCL": {
+    "name": "Oracle Corp",
+    "market": "US",
+    "ir_url": "https://investor.oracle.com",
+    "sec_cik": "0001341439",
+    "fiscal_year_end": "May"
+  },
+  "SMCI": {
+    "name": "Super Micro Computer Inc",
+    "market": "US",
+    "ir_url": "https://ir.supermicro.com",
+    "sec_cik": "0001375365",
+    "fiscal_year_end": "June"
+  },
+  "SNPS": {
+    "name": "Synopsys Inc",
+    "market": "US",
+    "ir_url": "https://investor.synopsys.com",
+    "sec_cik": "0000883241",
+    "fiscal_year_end": "October"
+  },
+  "STX": {
+    "name": "Seagate Technology Holdings",
+    "market": "US",
+    "ir_url": "https://investors.seagate.com",
+    "sec_cik": "0001137789",
+    "fiscal_year_end": "June"
+  },
+  "SWKS": {
+    "name": "Skyworks Solutions Inc",
+    "market": "US",
+    "ir_url": "https://investors.skyworksinc.com",
+    "sec_cik": "0000004127",
+    "fiscal_year_end": "October"
+  },
+  "TER": {
+    "name": "Teradyne Inc",
+    "market": "US",
+    "ir_url": "https://investors.teradyne.com",
+    "sec_cik": "0000097210",
+    "fiscal_year_end": "December"
+  },
+  "TSLA": {
+    "name": "Tesla Inc",
+    "market": "US",
+    "ir_url": "https://ir.tesla.com",
+    "sec_cik": "0001318605",
+    "fiscal_year_end": "December"
+  },
+  "VRT": {
+    "name": "Vertiv Holdings Co",
+    "market": "US",
+    "ir_url": "https://investors.vertiv.com",
+    "sec_cik": "0001674101",
+    "fiscal_year_end": "December"
+  },
+  "WDC": {
+    "name": "Western Digital Corp",
+    "market": "US",
+    "ir_url": "https://investor.wdc.com",
+    "sec_cik": "0000106040",
+    "fiscal_year_end": "July"
+  },
+  "1560 TT": {
+    "name": "Kinik Company",
+    "market": "TW",
+    "ir_url": "https://www.kinik.com.tw/en/investor/",
+    "twse_code": "1560",
+    "fiscal_year_end": "December"
+  },
+  "120110 KS": {
+    "name": "Kolon Industries",
+    "market": "KR",
+    "ir_url": "https://www.kolonindustries.com/en/invest/ir",
+    "dart_code": "00795135",
+    "fiscal_year_end": "December"
+  }
+}

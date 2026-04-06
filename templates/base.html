@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Research Pipeline{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h1>Research Pipeline</h1>
+            <small>Equity Research Automation</small>
+        </div>
+
+        <div class="sidebar-section">
+            <a class="sidebar-link {% if request.path == '/' %}active{% endif %}" href="/">Dashboard</a>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">Companies</div>
+            {% for market_code, market_name in [("US","United States"),("JP","Japan"),("TW","Taiwan"),("KR","Korea"),("other","Other")] %}
+            {% set market_items = [] %}
+            {% for ticker, company in companies.items() %}
+                {% if company.market == market_code or (market_code == "other" and company.market not in ["US","JP","TW","KR"]) %}
+                    {% set short_name = company.name.split(' ')[:3]|join(' ') %}
+                    {% set suffix = ticker.split(' ')[-1] if ' ' in ticker else 'US' %}
+                    {% set code = ticker.split(' ')[0] %}
+                    {% set display = short_name + ' (' + code + ' ' + suffix + ')' %}
+                    {% if market_items.append((ticker, display)) %}{% endif %}
+                {% endif %}
+            {% endfor %}
+            {% if market_items %}
+            <div class="sidebar-country">
+                <div class="sidebar-country-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    <span class="country-arrow">&#9662;</span> {{ market_name }}
+                </div>
+                <div class="sidebar-country-list">
+                {% for ticker, display in market_items %}
+                <a class="sidebar-link {% if request.path == '/company/' + ticker %}active{% endif %}"
+                   href="/company/{{ ticker }}">
+                    {{ display }}
+                </a>
+                {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">Thematic</div>
+            {% for theme in themes %}
+            <a class="sidebar-link {% if request.path == '/thematic/' + theme %}active{% endif %}"
+               href="/thematic/{{ theme }}">{{ theme }}</a>
+            {% endfor %}
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">Macro</div>
+            <a class="sidebar-link {% if request.path == '/macro' %}active{% endif %}" href="/macro">Summary</a>
+            {% for author in macro_authors %}
+            <a class="sidebar-link {% if request.path == '/macro/author/' + author %}active{% endif %}"
+               href="/macro/author/{{ author }}" style="font-size:12px;">{{ author }}</a>
+            {% endfor %}
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">Actions</div>
+            <a class="sidebar-link action" href="/download">Download Materials</a>
+            <a class="sidebar-link action" href="/store">Store Research</a>
+        </div>
+    </nav>
+
+    <div class="main">
+        <header class="topbar">
+            <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+            <input class="search-box" type="text" placeholder="Search (Ctrl+K)" id="search-box">
+        </header>
+
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <script>
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const group = tab.closest('.tabs').parentElement;
+            group.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            group.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            const target = document.getElementById(tab.dataset.tab);
+            if (target) target.classList.add('active');
+        });
+    });
+
+    // Expandable notes
+    document.querySelectorAll('.note-header').forEach(header => {
+        header.addEventListener('click', () => {
+            header.closest('.note-item').classList.toggle('expanded');
+        });
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('search-box').focus(); }
+        if (e.ctrlKey && e.key === 'd') { e.preventDefault(); window.location = '/'; }
+    });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

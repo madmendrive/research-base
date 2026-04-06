@@ -1,0 +1,429 @@
+{
+  "brief_sections": [
+    {
+      "heading": "World",
+      "topics": [
+        "US-Iran war",
+        "Trump",
+        "tariffs",
+        "Fedspeak"
+      ]
+    },
+    {
+      "heading": "Asia",
+      "topics": [
+        "Japan fiscal policy",
+        "Japan monetary policy",
+        "Japan macroeconomics",
+        "Sanae Takaichi",
+        "Korea fiscal policy",
+        "Korea monetary policy",
+        "Korea macroeconomics",
+        "China fiscal policy",
+        "China monetary policy"
+      ]
+    },
+    {
+      "heading": "Markets",
+      "subsections": [
+        "US equities",
+        "DXY",
+        "Metals (gold, copper, silver)",
+        "US Treasury bonds, HY and IG bonds",
+        "Oil"
+      ]
+    },
+    {
+      "heading": "Korea",
+      "topics": [
+        "Korean equities",
+        "KRW"
+      ]
+    },
+    {
+      "heading": "Japan",
+      "topics": [
+        "Japanese equities",
+        "JPY"
+      ]
+    },
+    {
+      "heading": "China & HK",
+      "topics": [
+        "Mainland and HK-listed equities",
+        "CNY"
+      ]
+    },
+    {
+      "heading": "Taiwan",
+      "topics": [
+        "Taiwan-listed equities",
+        "TWD"
+      ]
+    },
+    {
+      "heading": "Crypto",
+      "topics": [
+        "BTC",
+        "ETH",
+        "Hyperliquid",
+        "Solana",
+        "Pump.fun"
+      ]
+    },
+    {
+      "heading": "Tech",
+      "topics": [
+        "Memory (DRAM, NAND, SRAM)",
+        "AI servers",
+        "CPUs, GPUs",
+        "Foundries",
+        "Analog, IDMs",
+        "IC design houses",
+        "Substrates (ABF, BT), CCL, PCB",
+        "Memory probe cards",
+        "Smartphones, PCs, tablets"
+      ]
+    },
+    {
+      "heading": "AI",
+      "topics": [
+        "OpenAI",
+        "Anthropic",
+        "Google Gemini",
+        "OpenClaw"
+      ]
+    }
+  ],
+  "company_events": [
+    {
+      "date": "2026-03-15",
+      "name": "OFC 2026 (Mar 15-19)",
+      "ticker": "LITE"
+    },
+    {
+      "date": "2026-03-16",
+      "name": "GTC 2026 Keynote (Mar 16-19)",
+      "ticker": "NVDA"
+    },
+    {
+      "date": "2026-03-17",
+      "name": "Investor Briefing @ OFC",
+      "ticker": "LITE"
+    },
+    {
+      "date": "2026-03-26",
+      "name": "117th Shareholders Meeting",
+      "ticker": "4004 JT"
+    },
+    {
+      "date": "2026-04-10",
+      "name": "March Revenue Report",
+      "ticker": "2330 TT"
+    },
+    {
+      "date": "2026-04-15",
+      "name": "Q1 Earnings",
+      "ticker": "ASML"
+    },
+    {
+      "date": "2026-04-16",
+      "name": "Q1 Earnings Conference",
+      "ticker": "2330 TT"
+    },
+    {
+      "date": "2026-04-22",
+      "name": "AGM",
+      "ticker": "ASML"
+    },
+    {
+      "date": "2026-04-23",
+      "name": "Q1 Preliminary Earnings (est.)",
+      "ticker": "005930 KS"
+    },
+    {
+      "date": "2026-04-28",
+      "name": "Q1 Earnings (est.)",
+      "ticker": "3037 TT"
+    },
+    {
+      "date": "2026-04-29",
+      "name": "Q3 Earnings (est.)",
+      "ticker": "KLAC"
+    },
+    {
+      "date": "2026-04-30",
+      "name": "Q2 Earnings",
+      "ticker": "AAPL"
+    },
+    {
+      "date": "2026-05-04",
+      "name": "Q1 Earnings",
+      "ticker": "AMKR"
+    },
+    {
+      "date": "2026-05-04",
+      "name": "FY Results (est.)",
+      "ticker": "4062 JT"
+    },
+    {
+      "date": "2026-05-05",
+      "name": "Q1 Earnings (est.)",
+      "ticker": "AMD"
+    },
+    {
+      "date": "2026-05-05",
+      "name": "Q3 Earnings (est.)",
+      "ticker": "LITE"
+    },
+    {
+      "date": "2026-05-08",
+      "name": "FY Results (est.)",
+      "ticker": "5802 JT"
+    },
+    {
+      "date": "2026-05-08",
+      "name": "FY Results (est.)",
+      "ticker": "5803 JT"
+    },
+    {
+      "date": "2026-05-08",
+      "name": "April Revenue Report",
+      "ticker": "2330 TT"
+    },
+    {
+      "date": "2026-05-12",
+      "name": "FY Results (est.)",
+      "ticker": "5801 JT"
+    },
+    {
+      "date": "2026-05-19",
+      "name": "Q1 Earnings (est.)",
+      "ticker": "4004 JT"
+    },
+    {
+      "date": "2026-05-27",
+      "name": "Q1 FY27 Earnings (est.)",
+      "ticker": "NVDA"
+    },
+    {
+      "date": "2026-06-08",
+      "name": "WWDC 2026 (est. Jun 8-12)",
+      "ticker": "AAPL"
+    },
+    {
+      "date": "2026-06-10",
+      "name": "May Revenue Report",
+      "ticker": "2330 TT"
+    }
+  ],
+  "macro_events": [
+    {
+      "dates": [
+        "2026-03-18",
+        "2026-05-06",
+        "2026-06-17"
+      ],
+      "name": "FOMC Rate Decision",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-09"
+      ],
+      "name": "FOMC Minutes",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-10",
+        "2026-05-13"
+      ],
+      "name": "US CPI",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-10",
+        "2026-05-14"
+      ],
+      "name": "US PPI",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-03-27",
+        "2026-04-24"
+      ],
+      "name": "US PCE",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-03",
+        "2026-05-01"
+      ],
+      "name": "US NFP",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-03-26"
+      ],
+      "name": "US GDP (Q4 Final)",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-29"
+      ],
+      "name": "US GDP (Q1 Advance)",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-01",
+        "2026-05-01"
+      ],
+      "name": "US ISM Manufacturing",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-03",
+        "2026-05-05"
+      ],
+      "name": "US ISM Services",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-15"
+      ],
+      "name": "US Retail Sales",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-03-19",
+        "2026-03-26",
+        "2026-04-02",
+        "2026-04-09"
+      ],
+      "name": "US Initial Claims",
+      "region": "US"
+    },
+    {
+      "dates": [
+        "2026-04-02",
+        "2026-06-04"
+      ],
+      "name": "ECB Rate Decision",
+      "region": "EU"
+    },
+    {
+      "dates": [
+        "2026-03-27"
+      ],
+      "name": "EU GDP (Q4 Final)",
+      "region": "EU"
+    },
+    {
+      "dates": [
+        "2026-04-01",
+        "2026-04-17"
+      ],
+      "name": "EU CPI",
+      "region": "EU"
+    },
+    {
+      "dates": [
+        "2026-03-19",
+        "2026-04-30"
+      ],
+      "name": "BOJ Rate Decision",
+      "region": "JP"
+    },
+    {
+      "dates": [
+        "2026-03-20",
+        "2026-04-17"
+      ],
+      "name": "Japan CPI",
+      "region": "JP"
+    },
+    {
+      "dates": [
+        "2026-04-01"
+      ],
+      "name": "Japan Tankan Survey",
+      "region": "JP"
+    },
+    {
+      "dates": [
+        "2026-04-17"
+      ],
+      "name": "BOK Rate Decision",
+      "region": "KR"
+    },
+    {
+      "dates": [
+        "2026-04-23"
+      ],
+      "name": "Korea GDP",
+      "region": "KR"
+    },
+    {
+      "dates": [
+        "2026-03-31",
+        "2026-04-30"
+      ],
+      "name": "China PMI",
+      "region": "CN"
+    },
+    {
+      "dates": [
+        "2026-04-16"
+      ],
+      "name": "China GDP (Q1)",
+      "region": "CN"
+    }
+  ],
+  "news_topics": [
+    "US tariffs and trade policy",
+    "Federal Reserve monetary policy",
+    "Japan monetary policy",
+    "AI and semiconductor demand",
+    "OpenAI",
+    "Anthropic",
+    "Google Gemini",
+    "Deepseek",
+    "Middle East / Iran conflict",
+    "Oil and energy markets",
+    "US economic data (GDP, jobs, inflation)",
+    "Private credit"
+  ],
+  "portfolio_positions": [
+    "KLAC",
+    "ASML",
+    "AAPL",
+    "AMD",
+    "2330 TT",
+    "4004 JT",
+    "3037 TT",
+    "5801 JT",
+    "TER",
+    "NVDA",
+    "1560 TT",
+    "MU",
+    "285A JT",
+    "009150 KS",
+    "000660 KS",
+    "DELL",
+    "TER",
+    "035720 KS",
+    "035420 KS",
+    "036570 KS"
+  ],
+  "timezone": "Asia/Hong_Kong"
+}

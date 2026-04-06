@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Research Pipeline{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Morning/Evening Brief + Tech Brief side by side -->
+<div class="two-col" style="margin-bottom: 16px;">
+    <div class="section">
+        <h3 id="brief-title">Loading Brief...
+            <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+                <a href="#" onclick="fetchBrief(true); return false;">refresh</a> |
+                <a href="#" onclick="toggleEditor('brief-editor'); return false;">edit structure</a>
+            </span>
+        </h3>
+        <div class="section-body">
+            <div id="brief-editor" style="display: none; margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-color);">
+                <label style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Brief sections (JSON)</label>
+                <textarea id="brief-sections-textarea" style="width: 100%; height: 200px; font-size: 11px; font-family: var(--font-mono); padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); resize: vertical; margin-top: 4px;">{{ dash_config.brief_sections | tojson(indent=2) }}</textarea>
+                <button onclick="saveBriefSections()" style="margin-top: 6px; padding: 5px 14px; font-size: 12px; background: var(--section-header); color: white; border: none; border-radius: 4px; cursor: pointer;">Save & Regenerate</button>
+            </div>
+            <div id="brief-content" class="md-content md-compact" style="max-height: 80vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3 id="tech-brief-title">Tech Brief
+            <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+                <a href="#" onclick="fetchTechBrief(true); return false;">refresh</a>
+            </span>
+        </h3>
+        <div class="section-body">
+            <div id="tech-brief-content" class="md-content md-compact" style="max-height: 80vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- News feeds -->
+<div class="two-col" style="margin-bottom: 16px;">
+    <div class="section">
+        <h3>Top Headlines
+            <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+                <a href="#" onclick="fetchTopicNews(); return false;">refresh</a> |
+                <a href="#" onclick="toggleEditor('topics-editor'); return false;">edit topics</a> |
+                <a href="#" onclick="toggleSourceEditor('topics'); return false;">edit sources</a>
+            </span>
+        </h3>
+        <div class="section-body">
+        <div id="topics-editor" style="display: none; margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-color);">
+            <label style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Topics (one per line)</label>
+            <textarea id="topics-textarea" style="width: 100%; height: 120px; font-size: 12px; font-family: var(--font-sans); padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); resize: vertical; margin-top: 4px;">{{ dash_config.news_topics | join('\n') }}</textarea>
+            <button onclick="saveTopics()" style="margin-top: 6px; padding: 5px 14px; font-size: 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer;">Save</button>
+        </div>
+        <div id="topics-sources-editor" style="display: none; margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-color);">
+            <label style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Approved sources (one per line)</label>
+            <textarea id="topics-sources-textarea" style="width: 100%; height: 120px; font-size: 11px; font-family: var(--font-mono); padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); resize: vertical; margin-top: 4px;"></textarea>
+            <button onclick="saveFeedSources('topics')" style="margin-top: 6px; padding: 5px 14px; font-size: 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer;">Save & Refresh</button>
+        </div>
+        <div id="topics-feed" class="news-feed">
+            <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 13px;">Loading headlines...</div>
+        </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Portfolio
+            <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal; margin-left: 8px;">
+                <a href="#" onclick="fetchPortfolioNews(); return false;">refresh</a> |
+                <a href="#" onclick="toggleEditor('portfolio-editor'); return false;">edit positions</a> |
+                <a href="#" onclick="toggleSourceEditor('portfolio'); return false;">edit sources</a>
+            </span>
+        </h3>
+        <div class="section-body">
+        <div id="portfolio-editor" style="display: none; margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-color);">
+            <label style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Tickers (comma-separated)</label>
+            <textarea id="portfolio-textarea" style="width: 100%; height: 50px; font-size: 12px; font-family: var(--font-mono); padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); resize: vertical; margin-top: 4px;">{{ dash_config.portfolio_positions | join(', ') }}</textarea>
+            <button onclick="savePortfolio()" style="margin-top: 6px; padding: 5px 14px; font-size: 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer;">Save</button>
+        </div>
+        <div id="portfolio-sources-editor" style="display: none; margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-color);">
+            <label style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Approved sources (one per line)</label>
+            <textarea id="portfolio-sources-textarea" style="width: 100%; height: 120px; font-size: 11px; font-family: var(--font-mono); padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); resize: vertical; margin-top: 4px;"></textarea>
+            <button onclick="saveFeedSources('portfolio')" style="margin-top: 6px; padding: 5px 14px; font-size: 12px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; cursor: pointer;">Save & Refresh</button>
+        </div>
+        <div id="portfolio-feed" class="news-feed">
+            <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 13px;">Loading headlines...</div>
+        </div>
+        </div>
+    </div>
+</div>
+
+<!-- Events Calendar -->
+<div class="section">
+    <h3>Events Calendar <span style="font-size: 11px; color: var(--text-secondary); font-weight: normal;">(HKT)</span></h3>
+    <div class="section-body">
+    <div style="display: flex; gap: 8px; margin-bottom: 10px; font-size: 11px;">
+        <span><span class="calendar-event macro" style="display:inline; padding: 2px 6px;">Macro</span></span>
+        <span><span class="calendar-event earnings" style="display:inline; padding: 2px 6px;">Earnings</span></span>
+        <span><span class="calendar-event revenue" style="display:inline; padding: 2px 6px;">Revenue</span></span>
+        <span><span class="calendar-event company" style="display:inline; padding: 2px 6px;">Company Event</span></span>
+    </div>
+    <div class="calendar-grid">
+        <div class="calendar-header">Mon</div>
+        <div class="calendar-header">Tue</div>
+        <div class="calendar-header">Wed</div>
+        <div class="calendar-header">Thu</div>
+        <div class="calendar-header">Fri</div>
+        <div class="calendar-header">Sat</div>
+        <div class="calendar-header">Sun</div>
+        {% for day in calendar_days %}
+        <div class="calendar-day {% if day.is_today %}today{% endif %} {% if day.is_weekend %}other-month{% endif %}">
+            <div class="day-num">{{ day.date.strftime('%b %d') }}</div>
+            {% for evt in day.events %}
+            <div class="calendar-event {{ evt.type }}" title="{{ evt.name }}{% if evt.region %} ({{ evt.region }}){% endif %}">
+                {{ evt.name }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function renderNewsFeed(containerId, items) {
+    const container = document.getElementById(containerId);
+    if (!items || items.length === 0) {
+        container.innerHTML = '<div style="padding: 12px; color: var(--text-secondary); font-size: 13px;">No headlines found from approved sources.</div>';
+        return;
+    }
+    let html = '';
+    for (const item of items) {
+        const src = item.source || '';
+        const time = item.time || '';
+        const link = item.link || '#';
+        const tooltip = item.original_title ? ` title="${item.original_title}"` : '';
+        const langTag = item.lang === 'zh' ? '<span style="font-size:9px;background:var(--bg-tertiary);border:1px solid var(--border-color);padding:0 3px;border-radius:2px;margin-left:4px;color:var(--text-secondary);">ZH</span>' : '';
+        html += `<div class="news-item" style="display: flex; align-items: baseline; gap: 8px;">
+            <div style="flex: 1; min-width: 0;">
+                <a href="${link}" target="_blank"${tooltip} style="font-weight: 500; color: var(--text-primary); text-decoration: none;">${item.title}</a>${langTag}
+                <span style="font-size: 11px; color: var(--text-secondary); margin-left: 6px;">${src}</span>
+            </div>
+            <div style="font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); white-space: nowrap; flex-shrink: 0;">${time}</div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+function fetchTopicNews() {
+    document.getElementById('topics-feed').innerHTML = '<div style="padding: 12px; color: var(--text-secondary);">Fetching...</div>';
+    fetch('/api/news/topics')
+        .then(r => r.json())
+        .then(data => renderNewsFeed('topics-feed', data.items))
+        .catch(() => { document.getElementById('topics-feed').innerHTML = '<div style="padding:12px;color:var(--text-secondary)">Failed to fetch.</div>'; });
+}
+
+function fetchPortfolioNews() {
+    document.getElementById('portfolio-feed').innerHTML = '<div style="padding: 12px; color: var(--text-secondary);">Fetching...</div>';
+    fetch('/api/news/portfolio')
+        .then(r => r.json())
+        .then(data => renderNewsFeed('portfolio-feed', data.items))
+        .catch(() => { document.getElementById('portfolio-feed').innerHTML = '<div style="padding:12px;color:var(--text-secondary)">Failed to fetch.</div>'; });
+}
+
+function fetchBrief(force) {
+    document.getElementById('brief-title').firstChild.textContent = force ? 'Regenerating Brief... ' : 'Loading Brief... ';
+    document.getElementById('brief-content').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary)">' + (force ? 'Regenerating brief... this takes ~60 seconds.' : 'Loading brief...') + '</div>';
+    fetch('/api/brief' + (force ? '?force=1' : ''))
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('brief-title').firstChild.textContent = data.type + ' Brief ';
+            document.getElementById('brief-content').innerHTML = data.html;
+        })
+        .catch(() => {
+            document.getElementById('brief-content').innerHTML = '<div style="padding:12px;color:var(--text-secondary)">Brief generation failed.</div>';
+        });
+}
+
+function saveTopics() {
+    const text = document.getElementById('topics-textarea').value;
+    const topics = text.split('\n').map(t => t.trim()).filter(t => t);
+    fetch('/api/dashboard-config').then(r => r.json()).then(config => {
+        config.news_topics = topics;
+        return fetch('/api/dashboard-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(config)});
+    }).then(() => { document.getElementById('topics-editor').style.display='none'; fetchTopicNews(); });
+}
+
+function savePortfolio() {
+    const text = document.getElementById('portfolio-textarea').value;
+    const positions = text.split(',').map(t => t.trim()).filter(t => t);
+    fetch('/api/dashboard-config').then(r => r.json()).then(config => {
+        config.portfolio_positions = positions;
+        return fetch('/api/dashboard-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(config)});
+    }).then(() => { document.getElementById('portfolio-editor').style.display='none'; fetchPortfolioNews(); });
+}
+
+function saveBriefSections() {
+    try {
+        const sections = JSON.parse(document.getElementById('brief-sections-textarea').value);
+        fetch('/api/dashboard-config').then(r => r.json()).then(config => {
+            config.brief_sections = sections;
+            return fetch('/api/dashboard-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(config)});
+        }).then(() => { document.getElementById('brief-editor').style.display='none'; fetchBrief(); });
+    } catch(e) { alert('Invalid JSON: ' + e.message); }
+}
+
+function toggleEditor(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleSourceEditor(feed) {
+    const editorId = feed + '-sources-editor';
+    const textareaId = feed + '-sources-textarea';
+    const el = document.getElementById(editorId);
+    if (el.style.display === 'none') {
+        // Load current sources
+        fetch(`/api/feed-sources/${feed}`)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById(textareaId).value = data.sources.join('\n');
+                el.style.display = 'block';
+            });
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function saveFeedSources(feed) {
+    const textareaId = feed + '-sources-textarea';
+    const text = document.getElementById(textareaId).value;
+    const sources = text.split('\n').map(s => s.trim()).filter(s => s);
+    fetch(`/api/feed-sources/${feed}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sources: sources})
+    }).then(() => {
+        document.getElementById(feed + '-sources-editor').style.display = 'none';
+        if (feed === 'topics') fetchTopicNews();
+        if (feed === 'portfolio') fetchPortfolioNews();
+    });
+}
+
+function fetchTechBrief(force) {
+    document.getElementById('tech-brief-title').firstChild.textContent = force ? 'Regenerating Tech Brief... ' : 'Tech Brief ';
+    if (force) document.getElementById('tech-brief-content').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Regenerating... ~60s</div>';
+    fetch('/api/tech-brief' + (force ? '?force=1' : ''))
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('tech-brief-title').firstChild.textContent = 'Tech Brief ';
+            document.getElementById('tech-brief-content').innerHTML = data.html || '<p>No tech headlines.</p>';
+        })
+        .catch(() => {
+            document.getElementById('tech-brief-content').innerHTML = '<div style="padding:12px;color:var(--text-secondary)">Failed to load.</div>';
+        });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    fetchBrief(false);
+    fetchTechBrief(false);
+    fetchTopicNews();
+    fetchPortfolioNews();
+});
+</script>
+{% endblock %}
