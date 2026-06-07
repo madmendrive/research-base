@@ -24,10 +24,30 @@ DATA_DIR = PROJECT_ROOT / "data"
 SWEEPER_STATE_PATH = DATA_DIR / "_sweeper_state.json"
 BULK_STATE_PATH = DATA_DIR / "_bulk_ingest_state.json"
 
-# Settle window: how long the file size must be stable before we treat it as ready.
-SETTLE_INTERVAL_S = 2.0
-SETTLE_REQUIRED_PASSES = 3   # so we wait ~6s of no growth before reading
-SETTLE_MAX_WAIT_S = 300      # give up after 5 min (huge file or stuck transfer)
+# Settle window mechanics. Syncthing writes to ~syncthing~*.tmp / .syncthing.*.tmp
+# and atomically renames on completion, so on_moved with a non-hidden .pdf
+# destination is itself a completion signal — we keep a short size-stability
+# check as belt-and-suspenders, but it doesn't need to be long.
+SETTLE_INTERVAL_S = 1.0
+SETTLE_REQUIRED_PASSES = 2   # ~2s of no growth — atomic rename is already proof of completeness
+SETTLE_MAX_WAIT_S = 300      # absolute ceiling
+
+# Patterns to ignore on create events (Syncthing/browser temp files)
+IGNORE_PATTERNS = (
+    ".syncthing.",     # Syncthing temp prefix
+    "~syncthing~",     # Syncthing alt prefix
+    ".crdownload",     # Chrome partial download
+    ".part",           # Firefox partial download
+    ".download",       # Safari partial download
+    ".tmp",            # generic
+)
+
+
+def _is_temp_file(path: Path) -> bool:
+    name = path.name.lower()
+    if name.startswith(".") or name.startswith("~"):
+        return True
+    return any(p in name for p in IGNORE_PATTERNS)
 
 
 # ---------------------------------------------------------------------------
@@ -160,16 +180,20 @@ class PDFHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         path = Path(event.src_path)
-        if path.suffix.lower() != ".pdf":
+        if _is_temp_file(path) or path.suffix.lower() != ".pdf":
             return
         self._handle(path)
 
     def on_moved(self, event):
+        # Syncthing finishes a transfer with an atomic rename from temp -> final name.
+        # That's the strongest "file is complete" signal we get on this OS, so we
+        # treat on_moved as the primary trigger.
         if event.is_directory:
             return
         path = Path(event.dest_path)
-        if path.suffix.lower() != ".pdf":
+        if _is_temp_file(path) or path.suffix.lower() != ".pdf":
             return
+        self.log.debug("rename detected (Syncthing/browser finalisation): %s", path.name)
         self._handle(path)
 
     def _handle(self, path: Path) -> None:
@@ -198,16 +222,32 @@ class PDFHandler(FileSystemEventHandler):
             _save_state(self.state, SWEEPER_STATE_PATH)
             return
 
+        MAX_RETRIES = 3
+        prior_fail = self.state.get("failed", {}).get(h, {})
+        if prior_fail.get("attempts", 0) >= MAX_RETRIES:
+            self.log.warning("giving up on %s (%d prior attempts)", path.name, prior_fail.get("attempts", 0))
+            self.pusher.send(
+                f"Sweeper: giving up on {path.name} — failed {MAX_RETRIES} times. "
+                f"Last error: {prior_fail.get('error', '?')[:200]}"
+            )
+            return
+
         try:
             self._ingest(path, h)
+            # Clear any prior failure record on success
+            self.state.get("failed", {}).pop(h, None)
+            _save_state(self.state, SWEEPER_STATE_PATH)
         except Exception as e:
             self.log.exception("ingest failed: %s", path.name)
             self.pusher.send(f"Sweeper: ingest failed for {path.name}:\n{e}")
+            attempts = int(prior_fail.get("attempts", 0)) + 1
             self.state.setdefault("failed", {})[h] = {
                 "file": path.name,
                 "error": str(e),
                 "trace": traceback.format_exc(),
-                "failed_at": datetime.now().isoformat(timespec="seconds"),
+                "attempts": attempts,
+                "first_failed_at": prior_fail.get("first_failed_at") or datetime.now().isoformat(timespec="seconds"),
+                "last_failed_at": datetime.now().isoformat(timespec="seconds"),
             }
             _save_state(self.state, SWEEPER_STATE_PATH)
 

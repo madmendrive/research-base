@@ -139,6 +139,7 @@ def _process_one(pdf_path: Path, dry_run: bool, with_cross_cut: bool, client=Non
         "proposed_new_semis_authors": triage.get("proposed_new_semis_authors", []),
         "proposed_new_themes": triage.get("proposed_new_themes", []),
         "confidence": triage["confidence"],
+        "held_for_review": triage["confidence"] == "low",
         "triage_seconds": round(time.time() - t0, 1),
     }
 
@@ -316,13 +317,21 @@ def bulk_ingest(folder: str, dry_run: bool = False, limit: int = 0,
 
     state = _load_state()
     processed_hashes = set(state.get("processed", {}).keys())
+    failed_state = state.get("failed", {})
+    MAX_RETRIES = 3
 
     queue = []
     skipped = 0
+    skipped_gave_up = 0
     for pdf in pdfs:
         h = _hash_file(pdf)
         if h in processed_hashes and not force:
             skipped += 1
+            continue
+        # Retry cap: don't keep retrying a file that has hit MAX_RETRIES failures.
+        fail_rec = failed_state.get(h)
+        if fail_rec and not force and fail_rec.get("attempts", 0) >= MAX_RETRIES:
+            skipped_gave_up += 1
             continue
         queue.append((pdf, h))
 
@@ -330,7 +339,7 @@ def bulk_ingest(folder: str, dry_run: bool = False, limit: int = 0,
         queue = queue[:limit]
 
     click.echo(f"Folder: {folder_path}")
-    click.echo(f"PDFs found: {len(pdfs)}  |  Already processed: {skipped}  |  Queued: {len(queue)}")
+    click.echo(f"PDFs found: {len(pdfs)}  |  Already processed: {skipped}  |  Gave-up: {skipped_gave_up}  |  Queued: {len(queue)}")
     if dry_run:
         click.echo("DRY RUN — no storage, just triage")
     if with_cross_cut:
@@ -374,8 +383,11 @@ def bulk_ingest(folder: str, dry_run: bool = False, limit: int = 0,
                     "primary_subject": rec["primary_subject"],
                     "tickers_covered": rec["tickers_covered"],
                     "themes_touched": rec["themes_touched"],
+                    "held_for_review": rec.get("held_for_review", False),
                     "processed_at": datetime.now().isoformat(timespec="seconds"),
                 }
+                # Clear any prior failure record on success (or held)
+                state.get("failed", {}).pop(h, None)
                 _save_state(state)
         except KeyboardInterrupt:
             click.echo("\nInterrupted. State saved; re-run to resume.")
@@ -385,10 +397,14 @@ def bulk_ingest(folder: str, dry_run: bool = False, limit: int = 0,
             tb = traceback.format_exc()
             click.echo(f"    ✗ FAILED: {err}")
             failed.append({"file": pdf.name, "path": str(pdf), "error": err, "trace": tb})
-            state.setdefault("failed", {})[h] = {
+            prior = state.setdefault("failed", {}).get(h, {})
+            attempts = int(prior.get("attempts", 0)) + 1
+            state["failed"][h] = {
                 "file": pdf.name,
                 "error": err,
-                "failed_at": datetime.now().isoformat(timespec="seconds"),
+                "attempts": attempts,
+                "first_failed_at": prior.get("first_failed_at") or datetime.now().isoformat(timespec="seconds"),
+                "last_failed_at": datetime.now().isoformat(timespec="seconds"),
             }
             _save_state(state)
 

@@ -6,6 +6,7 @@ Designed to be called from bot.py off the event loop.
 
 import contextlib
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,44 @@ from scripts.triage import triage_document, format_triage_for_user
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+PENDING_REVIEW_DIR = DATA_DIR / "_pending_review"
+ROUTING_LOG_PATH = DATA_DIR / "_routing_log.jsonl"
+
+
+# ---------------------------------------------------------------------------
+# Routing log + low-confidence holding folder
+# ---------------------------------------------------------------------------
+
+def _append_routing_log(record: dict) -> None:
+    """Append-only audit log of every classification decision.
+    One JSON object per line so it's easy to grep / tail / import to pandas.
+    """
+    ROUTING_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(ROUTING_LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _hold_for_review(triage: dict, pdf_path: Path) -> str:
+    """Copy a low-confidence-triaged file to data/_pending_review/ instead of
+    auto-storing. Returns the user-facing message for the bot/sweeper to send.
+    """
+    PENDING_REVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    dest = PENDING_REVIEW_DIR / f"{today}_{pdf_path.name}"
+    if not dest.exists():
+        shutil.copy2(pdf_path, dest)
+    pt = triage["primary_type"]
+    cat = triage.get("category") or ""
+    ps = triage["primary_subject"]
+    rationale = triage.get("rationale", "")
+    return (
+        f"⚠ LOW CONFIDENCE — held for review.\n"
+        f"Triage best guess: {pt}{('/' + cat) if cat else ''} → {ps}\n"
+        f"Rationale: {rationale}\n"
+        f"File: data/_pending_review/{dest.name}\n"
+        f"To accept: python main.py store-{pt.replace('_', '-')} ... <path>\n"
+        f"Or use the Telegram override commands: /research TICKER, /macro AUTHOR, /thematic THEME"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -123,18 +162,33 @@ def _cross_analyse_theme(theme: str, pdf_path: Path) -> str:
 
 def _derive_secondaries(triage: dict) -> list[tuple[str, str, str]]:
     """Return list of (label, kind, target) for cross-cutting analysis.
-    kind is 'ticker' or 'theme'. Excludes the primary entity to avoid double work.
+
+    Filters by materiality from the triage step — only 'significant' or
+    'primary' mentions get a cross-cut. 'passing' mentions are skipped to
+    avoid producing low-signal analyses that bloat cost and the knowledge
+    base. (A 20-page SemiAnalysis piece can mention 15 tickers; only ~3-5
+    are usually substantive.)
+
+    If materiality is missing for an entity, default to 'significant' (i.e.
+    include it). That's conservative — better a wasted cross-cut than a
+    missing one.
     """
     primary_type = triage["primary_type"]
     primary_subject = triage["primary_subject"]
+    ticker_mat = triage.get("materiality", {}).get("tickers", {}) or {}
+    theme_mat = triage.get("materiality", {}).get("themes", {}) or {}
 
     secondaries = []
     for ticker in triage.get("tickers_covered", []):
         if primary_type == "single_name" and ticker == primary_subject:
             continue
+        if ticker_mat.get(ticker, "significant") == "passing":
+            continue
         secondaries.append((f"Cross-read: {ticker}", "ticker", ticker))
     for theme in triage.get("themes_touched", []):
         if primary_type == "thematic" and theme == primary_subject:
+            continue
+        if theme_mat.get(theme, "significant") == "passing":
             continue
         secondaries.append((f"Cross-read: {theme} (theme)", "theme", theme))
     return secondaries
@@ -143,6 +197,30 @@ def _derive_secondaries(triage: dict) -> list[tuple[str, str, str]]:
 def _store_primary(triage: dict, pdf_path: Path) -> str:
     pt = triage["primary_type"]
     ps = triage["primary_subject"]
+    confidence = triage.get("confidence", "low")
+
+    # Routing log: append-only audit of EVERY decision (held or stored).
+    _append_routing_log({
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "file": pdf_path.name,
+        "primary_type": pt,
+        "category": triage.get("category"),
+        "primary_subject": ps,
+        "confidence": confidence,
+        "routed_to": "_pending_review" if confidence == "low" else (
+            f"data/{ps}/research" if pt == "single_name"
+            else f"data/{triage.get('category', 'Macro')}/authors/{ps}" if pt in ("macro", "news_article")
+            else f"data/Thematic/{ps}" if pt == "thematic"
+            else "?"
+        ),
+        "tickers_covered": triage.get("tickers_covered", []),
+        "themes_touched": triage.get("themes_touched", []),
+    })
+
+    # Confidence gate — low confidence goes to the holding folder, NOT silent storage.
+    if confidence == "low":
+        return _hold_for_review(triage, pdf_path)
+
     if pt == "single_name":
         return _store_primary_research(ps, pdf_path)
     if pt == "thematic":
