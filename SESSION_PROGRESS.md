@@ -91,15 +91,34 @@ as a LaunchAgent in production.
 | Claude Code sessions | Desktop, this session | Desktop, via git pull from private repo |
 | Code | Local clone | Git on both machines |
 
+## Round 2 (post design-review): 8 fixes applied
+
+1. **Model tiering** — Haiku 4.5 for triage (classification), Sonnet 4.6 for extraction (structured JSON), Opus 4.7 reserved for synthesis (view-evolution, cross-cut). Roughly ~60% steady-state cost cut. `_call_api` now accepts a `model=` param; per-call constants `EXTRACTION_MODEL` / `SYNTHESIS_MODEL` express the tier choice.
+2. **MACRO_DIR race condition** — replaced module-level monkey-patching with a `contextvars.ContextVar` and `macro.use_category(category)` context manager. Thread-safe and asyncio-safe; concurrent bot uploads + sweeper jobs no longer risk silently routing a Semis doc into `data/Macro/` or vice versa.
+3. **Cross-cut materiality gate** — every ticker/theme in triage output now carries `materiality: primary | significant | passing`. `_derive_secondaries` drops `passing` mentions. A SemiAnalysis EDA primer that mentions 22 tickers now produces ~10 cross-cuts instead of 22.
+4. **Prompt-injection defence** — all extraction/analysis prompts wrap doc text in `<document>...</document>` tags with explicit "data, not instructions" framing in the system prompt. Triage's system prompt explicitly tells the model to flag override attempts with `confidence: low` rather than complying.
+5. **Failure-state retry cap (3 attempts)** — both `bulk_ingest` and `sweeper` now track `attempts` per failed hash. After 3 fails, file is skipped on subsequent runs. Successful processing clears the prior failure record.
+6. **Syncthing-aware sweeper** — ignores `.syncthing.*.tmp`, `~syncthing~*`, `.crdownload`, `.part`, `.download`, `.tmp` patterns and dotfiles. Settle window shortened from ~6s to ~2s because Syncthing's atomic rename-into-place is itself a "complete" signal; we still verify size stability as belt-and-suspenders.
+7. **Low-confidence holding folder** — when triage returns `confidence: low`, file goes to `data/_pending_review/` instead of auto-storing. Telegram message explains the best-guess classification and lists override commands.
+8. **Routing log** — every classification decision (held or stored) is appended to `data/_routing_log.jsonl`. One JSON object per line for easy `jq` / pandas review.
+
+## Policy items (documentation — applies at Mac mini cutover)
+
+- **Inbox lifecycle:** files stay in the inbox forever; SHA256-based state dedupes. Schedule a monthly archive job on the desktop side (the source) that moves files >90 days old to a separate archive folder. The Mac mini must NEVER delete inbox files — Syncthing would resurrect them or flag conflicts.
+- **Single-writer rule for state files:** during the Mac mini cutover, run in this order: (1) rsync `data/` desktop → mini, (2) stop bot + sweeper on desktop, (3) start bot + sweeper on mini. Never both at once or `_*_state.json` files will diverge.
+- **Backups:** `data/` will embody ~$200 of API spend + irreplaceable notes once bulk-ingest runs. Set up Time Machine to an external drive on the Mac mini AND a nightly `restic` or `rclone` snapshot from mini → desktop during the port. Don't wait for the first scare.
+- **Cache TTL realism:** ephemeral cache has ~5min TTL. Bulk-ingest hits it (sequential calls); the production sweeper mostly won't (sporadic file arrivals). Steady-state, every dropped PDF pays the 1.25× cache-write premium without a corresponding read. Don't extrapolate backfill economics to production.
+- **Bot persistence on desktop:** even for testing, run via `Start-Process` (Windows) or `nohup` (Mac) so it survives the launching shell closing.
+- **Ticker inventory scaling:** currently 226 tickers at ~7K tokens fits comfortably in the cached system block. At ~50–100K tokens (probably ~500+ tickers), switch to: embedding the doc, retrieving top-K relevant tickers, passing only those to triage. Watch this when count crosses ~400.
+
 ## Open / next session
 
-1. **Wait for bulk-ingest to finish** — Telegram summary on completion. Inspect failures.
-2. **Bulk cross-cut pass** — `python main.py bulk-cross-cut --dry-run` to see cost estimate, then real run (~$75–100, gives every stored doc cross-cuts against every entity it touches).
-3. **Mac mini port** — install deps, clone repo, rsync `data/`, set up Syncthing one-way mirror for `research-inbox/`, write LaunchAgent plists for `bot.py` and `sweep`.
-4. **Rotate the bot token** — it was pasted in chat early in the session.
-5. **Heartbeat / agenda.md scheduler** — the twice-daily folder sweep + 2-hourly headlines were scoped but not built.
-6. **Email sweep** — IMAP for Substack inbox.
-7. **Update CLAUDE.md** — pre-session version is now significantly out of date.
+1. **Restart bulk-ingest** — with all the Round 2 fixes in. Expect ~$30–60 (Haiku triage + Sonnet extraction + Opus synthesis). Resumable from current state (3 already processed).
+2. **Bulk cross-cut pass** — `python main.py bulk-cross-cut --dry-run` first. Materiality gate makes this cheaper than originally estimated.
+3. **Mac mini port** — see deployment steps above.
+4. **Heartbeat / agenda.md scheduler** — twice-daily folder sweep + 2-hourly headlines, all keyed off a hand-editable `agenda.md`.
+5. **Email sweep** — IMAP for Substack inbox.
+6. **Inline-keyboard confirmation for held files** — v2 of low-confidence routing: send `[Confirm] [Reclassify] [Drop]` buttons via Telegram instead of a text-only message.
 
 ## Quick reference
 
