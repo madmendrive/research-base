@@ -1,3 +1,13 @@
+import truststore; truststore.inject_into_ssl()  # Use Windows cert store (handles Norton SSL inspection)
+
+import sys
+# Force UTF-8 on stdout/stderr so Unicode in summaries doesn't blow up the Windows cp1252 console.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 import json
 from pathlib import Path
 
@@ -377,6 +387,84 @@ def add_company():
     companies[ticker] = entry
     save_companies(companies)
     click.echo(f"Added {ticker} ({name}) to companies.json.")
+
+
+@cli.command("bulk-ingest")
+@click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
+              show_default=True,
+              help="Folder of PDFs to ingest (recursive).")
+@click.option("--dry-run", is_flag=True,
+              help="Triage only — no storage. Use to preview classifications and estimate cost.")
+@click.option("--limit", default=0, type=int,
+              help="Process at most this many new files (0 = unlimited).")
+@click.option("--with-cross-cut", is_flag=True,
+              help="Also run cross-cutting analysis per file (2-5x cost/time).")
+@click.option("--force", is_flag=True,
+              help="Re-process files already recorded in state.")
+@click.option("--no-notify", is_flag=True,
+              help="Skip the Telegram summary at the end.")
+def bulk_ingest_cmd(folder, dry_run, limit, with_cross_cut, force, no_notify):
+    """Bulk-ingest a folder of PDFs into the knowledge base.
+
+    Default: triage + store under primary type. Skips files already processed
+    (tracked by content hash in data/_bulk_ingest_state.json). Safe to re-run.
+    """
+    from scripts.bulk_ingest import bulk_ingest
+    bulk_ingest(
+        folder=folder,
+        dry_run=dry_run,
+        limit=limit,
+        with_cross_cut=with_cross_cut,
+        force=force,
+        notify=not no_notify,
+    )
+
+
+@cli.command("bulk-cross-cut")
+@click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
+              show_default=True,
+              help="Fallback folder for resolving source PDFs by filename if the path recorded by bulk-ingest is gone.")
+@click.option("--dry-run", is_flag=True,
+              help="Show plan + estimated cost only; no API calls.")
+@click.option("--limit", default=0, type=int,
+              help="Process at most this many pairs (0 = unlimited).")
+@click.option("--yes", is_flag=True,
+              help="Skip the cost confirmation prompt.")
+@click.option("--no-notify", is_flag=True,
+              help="Skip the Telegram summary at end.")
+def bulk_cross_cut_cmd(folder, dry_run, limit, yes, no_notify):
+    """Second-pass: cross-cutting analysis on every doc bulk-ingest stored.
+
+    For each stored doc, runs analyse_research / analyse_thematic against every
+    OTHER ticker/theme it touches. Resumable. Skips pairs already done. Warns
+    on cost before running (~$0.30/pair, ~$75-100 for a 117-doc corpus).
+    """
+    from scripts.bulk_cross_cut import bulk_cross_cut
+    bulk_cross_cut(
+        folder=folder,
+        dry_run=dry_run,
+        limit=limit,
+        yes=yes,
+        notify=not no_notify,
+    )
+
+
+@cli.command("sweep")
+@click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
+              show_default=True,
+              help="Folder to watch for new PDFs.")
+@click.option("--with-cross-cut", is_flag=True,
+              help="Also run cross-cutting analysis per file (2-5x cost/time).")
+@click.option("--scan-existing", is_flag=True,
+              help="At startup, also process any PDFs already in the folder.")
+def sweep_cmd(folder, with_cross_cut, scan_existing):
+    """Watch a folder for new PDFs and ingest them (long-running).
+
+    Skips files already processed by bulk-ingest (matched by content hash).
+    Pushes triage + storage + cross-cut results to Telegram per file.
+    """
+    from scripts.sweeper import sweep
+    sweep(folder=folder, with_cross_cut=with_cross_cut, scan_existing=scan_existing)
 
 
 @cli.command()
