@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 MACRO_DIR = DATA_DIR / "Macro"
 
-RESEARCH_MODEL = "claude-sonnet-4-20250514"
+RESEARCH_MODEL = "claude-opus-4-7"
 MAX_TEXT_CHARS = 30_000
 
 VIEW_TOPICS = [
@@ -104,8 +104,15 @@ def _call_api(client, messages, max_tokens=8192):
                         ) as stream:
                             for text in stream.text_stream:
                                 chunks.append(text)
+                            final = stream.get_final_message()
+                        # If the stream was truncated (max_tokens hit, connection drop),
+                        # don't return partial chunks — fall through to next retry.
+                        if final.stop_reason not in ("end_turn", "stop_sequence"):
+                            print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
+                            continue
                         return "".join(chunks)
-                    except Exception:
+                    except Exception as inner:
+                        print(f"  streaming retry failed: {inner}, trying again...")
                         continue
             raise
     raise RuntimeError("API call failed after 3 attempts")
@@ -680,14 +687,20 @@ def store_macro(file_path, author):
     text = _extract_file_text(src)
     click.echo(f"  Extracted {len(text):,} characters")
 
-    # Send to Claude
+    # Send to Claude (retry on truncated/invalid JSON)
     click.echo("Analysing with Claude API...")
     client = Anthropic(max_retries=3, timeout=600.0)
     prompt = _build_extraction_prompt(author) + text
-    raw = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=8192)
-
-    # Parse and save
-    note_data = _parse_json_response(raw)
+    note_data = None
+    for json_attempt in range(3):
+        raw = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384)
+        try:
+            note_data = _parse_json_response(raw)
+            break
+        except json.JSONDecodeError as e:
+            click.echo(f"  JSON parse failed (attempt {json_attempt + 1}/3): {e}; retrying API call...")
+    if note_data is None:
+        raise RuntimeError("Extraction call produced unparsable JSON after 3 attempts")
     json_path = notes_dir / f"{dest_name}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(note_data, f, indent=2, ensure_ascii=False)
@@ -717,7 +730,7 @@ def store_macro(file_path, author):
         summary_json=macro_summary,
         trades_history=trades_history,
     )
-    view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=8192)
+    view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=16384)
     report = merge_analysis_report(note_data, view_evolution)
 
     # Re-save JSON with complete analysis_report

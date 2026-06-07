@@ -22,7 +22,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 THEMATIC_DIR = DATA_DIR / "Thematic"
 CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 
-RESEARCH_MODEL = "claude-sonnet-4-20250514"
+RESEARCH_MODEL = "claude-opus-4-7"
 MAX_TEXT_CHARS = 30_000
 
 

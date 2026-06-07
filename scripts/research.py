@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 
-RESEARCH_MODEL = "claude-sonnet-4-20250514"
+RESEARCH_MODEL = "claude-opus-4-7"
 MAX_TEXT_CHARS = 30_000
 
 # Currency / unit config by market
@@ -89,25 +89,61 @@ def _extract_file_text(path):
         raise RuntimeError(f"Unsupported file type: {suffix}")
 
 
-def _call_api(client, messages, max_tokens=8192):
-    """Call Claude API with retry logic for transient errors."""
+def _call_api(client, messages, max_tokens=8192, system=None, return_response=False):
+    """Call Claude API with retry + streaming fallback.
+
+    system: optional system parameter — pass a list of content blocks with
+            cache_control to enable prompt caching, or a plain string.
+    return_response: if True, return the raw response object (so callers can
+                     inspect usage metadata like cache_read_input_tokens).
+                     Otherwise return just the text content.
+    """
     import time
     for attempt in range(3):
         try:
-            response = client.messages.create(
-                model=RESEARCH_MODEL,
-                max_tokens=max_tokens,
-                messages=messages,
-            )
+            kwargs = {
+                "model": RESEARCH_MODEL,
+                "max_tokens": max_tokens,
+                "messages": messages,
+            }
+            if system is not None:
+                kwargs["system"] = system
+            response = client.messages.create(**kwargs)
+            if return_response:
+                return response
             return response.content[0].text
         except Exception as e:
             err_str = str(e).lower()
-            if "overloaded" in err_str or "connection" in err_str or "529" in err_str:
+            if "overloaded" in err_str or "connection" in err_str or "529" in err_str or "disconnected" in err_str:
                 if attempt < 2:
                     wait = 5 * (attempt + 1)
-                    print(f"  API transient error, retrying in {wait}s...")
+                    print(f"  API transient error, retrying in {wait}s (streaming)...")
                     time.sleep(wait)
-                    continue
+                    # Fall back to streaming to keep connection alive
+                    try:
+                        stream_kwargs = {
+                            "model": RESEARCH_MODEL,
+                            "max_tokens": max_tokens,
+                            "messages": messages,
+                        }
+                        if system is not None:
+                            stream_kwargs["system"] = system
+                        chunks = []
+                        with client.messages.stream(**stream_kwargs) as stream:
+                            for text in stream.text_stream:
+                                chunks.append(text)
+                            final = stream.get_final_message()
+                        # Verify the model finished naturally; truncated streams will have
+                        # stop_reason='max_tokens' or be otherwise incomplete.
+                        if final.stop_reason not in ("end_turn", "stop_sequence"):
+                            print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
+                            continue
+                        if return_response:
+                            return final
+                        return "".join(chunks)
+                    except Exception as inner:
+                        print(f"  streaming retry failed: {inner}, trying again...")
+                        continue
             raise
     raise RuntimeError("API call failed after 3 attempts")
 
@@ -235,14 +271,22 @@ def store_research(ticker, file_path):
     text = _extract_file_text(src)
     click.echo(f"  Extracted {len(text):,} characters")
 
-    # c. Send to Claude API
+    # c. Send to Claude API (retry on truncated/invalid JSON)
     click.echo("Analysing with Claude API...")
     client = Anthropic(max_retries=3, timeout=600.0)
     prompt = _build_extraction_prompt(company_name, ticker) + text
-    raw = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=8192)
+    note_data = None
+    for json_attempt in range(3):
+        raw = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384)
+        try:
+            note_data = _parse_json_response(raw)
+            break
+        except json.JSONDecodeError as e:
+            click.echo(f"  JSON parse failed (attempt {json_attempt + 1}/3): {e}; retrying API call...")
+    if note_data is None:
+        raise RuntimeError("Extraction call produced unparsable JSON after 3 attempts")
 
-    # d. Parse and save JSON
-    note_data = _parse_json_response(raw)
+    # d. Save JSON
     json_path = notes_dir / f"{dest_name}.json"
     with open(json_path, "w") as f:
         json.dump(note_data, f, indent=2, ensure_ascii=False)
@@ -280,7 +324,7 @@ def store_research(ticker, file_path):
         author_history_json=author_history,
         summary_json=existing_summary,
     )
-    view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=8192)
+    view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=16384)
     report = merge_analysis_report(note_data, view_evolution)
 
     # Re-save JSON with complete analysis_report
