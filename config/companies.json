@@ -1050,5 +1050,462 @@
     "ir_url": "https://www.kolonindustries.com/en/invest/ir",
     "dart_code": "00795135",
     "fiscal_year_end": "December"
+  },
+  "NOK": {
+    "name": "Nokia Corp",
+    "market": "US",
+    "ir_url": "https://www.nokia.com/about-us/investors/",
+    "sec_cik": "0000924613",
+    "fiscal_year_end": "December"
+  },
+  "7974 JT": {
+    "name": "Nintendo Co Ltd",
+    "market": "JP",
+    "ir_url": "https://www.nintendo.co.jp/ir/en/finance/index.html",
+    "edinet_code": "E02367",
+    "fiscal_year_end": "March",
+    "ir_extra_urls": [
+      "https://www.nintendo.co.jp/ir/en/library/earnings/index.html",
+      "https://www.nintendo.co.jp/ir/en/library/annual/index.html",
+      "https://www.nintendo.co.jp/ir/en/events/index.html"
+    ]
+  },
+  "MSFT": {
+    "name": "Microsoft Corp",
+    "market": "US",
+    "ir_url": "https://www.microsoft.com/en-us/investor",
+    "sec_cik": "0000789019",
+    "fiscal_year_end": "June",
+    "ir_extra_urls": [
+      "https://www.microsoft.com/en-us/investor/earnings/recent",
+      "https://www.microsoft.com/en-us/investor/sec-filings"
+    ]
+  },
+  "META": {
+    "name": "Meta Platforms Inc",
+    "market": "US",
+    "ir_url": "https://investor.atmeta.com/",
+    "sec_cik": "0001326801",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://investor.atmeta.com/financials/quarterly-earnings/default.aspx",
+      "https://investor.atmeta.com/financials/sec-filings/default.aspx"
+    ]
+  },
+  "GOOGL": {
+    "name": "Alphabet Inc",
+    "market": "US",
+    "ir_url": "https://abc.xyz/investor/",
+    "sec_cik": "0001652044",
+    "fiscal_year_end": "December",
+    "ir_extra_urls": [
+      "https://abc.xyz/investor/earnings/",
+      "https://abc.xyz/investor/sec-filings/"
+    ]
+  },
+  "ALAB": {
+    "name": "Astera Labs, Inc.",
+    "market": "US",
+    "ir_url": "https://asteralabs.gcs-web.com/",
+    "ir_extra_urls": [
+      "https://asteralabs.gcs-web.com/news-events/events-presentations",
+      "https://asteralabs.gcs-web.com/financials/sec-filings"
+    ],
+    "sec_cik": "0001736297",
+    "fiscal_year_end": "December"
+  },
+  "WOLF": {
+    "name": "Wolfspeed, Inc.",
+    "market": "US",
+    "ir_url": "https://investor.wolfspeed.com/overview/default.aspx",
+    "ir_extra_urls": [
+      "https://investor.wolfspeed.com/events-and-presentations/default.aspx",
+      "https://investor.wolfspeed.com/financials/quarterly-results/default.aspx"
+    ],
+    "sec_cik": "0000895419",
+    "fiscal_year_end": "June"
+  },
+  "NVTS": {
+    "name": "Navitas Semiconductor Corp",
+    "market": "US",
+    "ir_url": "https://ir.navitassemi.com/",
+    "ir_extra_urls": [
+      "https://ir.navitassemi.com/financial-information/quarterly-results",
+      "https://ir.navitassemi.com/news-events/events-presentations"
+    ],
+    "sec_cik": "0001821769",
+    "fiscal_year_end": "December"
+  },
+  "HON": {
+    "name": "Honeywell International Inc",
+    "market": "US",
+    "ir_url": "https://investor.honeywell.com/",
+    "ir_extra_urls": [
+      "https://investor.honeywell.com/financials/quarterly-results/default.aspx",
+      "https://investor.honeywell.com/financials/sec-filings/default.aspx",
+      "https://investor.honeywell.com/events-and-presentations/default.aspx"
+    ],
+    "sec_cik": "0000773840",
+    "fiscal_year_end": "December"
+  },
+  "AAOI": {
+    "name": "Applied Optoelectronics",
+    "market": "US"
+  },
+  "ACLS": {
+    "name": "Axcelis Technologies",
+    "market": "US"
+  },
+  "AEHR": {
+    "name": "Aehr Test Systems",
+    "market": "US"
+  },
+  "AEP": {
+    "name": "American Electric Power",
+    "market": "US"
+  },
+  "APH": {
+    "name": "Amphenol Corp",
+    "market": "US"
+  },
+  "ASTS": {
+    "name": "AST SpaceMobile",
+    "market": "US"
+  },
+  "AUR": {
+    "name": "Aurora Innovation",
+    "market": "US"
+  },
+  "AXTI": {
+    "name": "AXT Inc",
+    "market": "US"
+  },
+  "BE": {
+    "name": "Bloom Energy",
+    "market": "US"
+  },
+  "BKSY": {
+    "name": "BlackSky Technology",
+    "market": "US"
+  },
+  "CACI": {
+    "name": "CACI International",
+    "market": "US"
+  },
+  "CBRS": {
+    "name": "Cerebras Systems",
+    "market": "US"
+  },
+  "CDNS": {
+    "name": "Cadence Design Systems",
+    "market": "US"
+  },
+  "CLF": {
+    "name": "Cleveland-Cliffs",
+    "market": "US"
+  },
+  "CLS": {
+    "name": "Celestica",
+    "market": "US"
+  },
+  "COHU": {
+    "name": "Cohu Inc",
+    "market": "US"
+  },
+  "CRWV": {
+    "name": "CoreWeave",
+    "market": "US"
+  },
+  "CSCO": {
+    "name": "Cisco Systems",
+    "market": "US"
+  },
+  "DY": {
+    "name": "Dycom Industries",
+    "market": "US"
+  },
+  "ENTG": {
+    "name": "Entegris",
+    "market": "US"
+  },
+  "EQIX": {
+    "name": "Equinix",
+    "market": "US"
+  },
+  "ETN": {
+    "name": "Eaton Corporation",
+    "market": "US"
+  },
+  "FCEL": {
+    "name": "FuelCell Energy",
+    "market": "US"
+  },
+  "FLEX": {
+    "name": "Flex Ltd",
+    "market": "US"
+  },
+  "FN": {
+    "name": "Fabrinet",
+    "market": "US"
+  },
+  "FYBR": {
+    "name": "Frontier Communications",
+    "market": "US"
+  },
+  "GEV": {
+    "name": "GE Vernova",
+    "market": "US"
+  },
+  "GSAT": {
+    "name": "Globalstar",
+    "market": "US"
+  },
+  "ICHR": {
+    "name": "Ichor Holdings",
+    "market": "US"
+  },
+  "IONQ": {
+    "name": "IonQ",
+    "market": "US"
+  },
+  "JBL": {
+    "name": "Jabil Inc",
+    "market": "US"
+  },
+  "KEYS": {
+    "name": "Keysight Technologies",
+    "market": "US"
+  },
+  "LPTH": {
+    "name": "LightPath Technologies",
+    "market": "US"
+  },
+  "LUMN": {
+    "name": "Lumen Technologies",
+    "market": "US"
+  },
+  "LWLG": {
+    "name": "Lightwave Logic",
+    "market": "US"
+  },
+  "MBLY": {
+    "name": "Mobileye Global",
+    "market": "US"
+  },
+  "MCHP": {
+    "name": "Microchip Technology",
+    "market": "US"
+  },
+  "MKSI": {
+    "name": "MKS Instruments",
+    "market": "US"
+  },
+  "MP": {
+    "name": "MP Materials",
+    "market": "US"
+  },
+  "MRVL": {
+    "name": "Marvell Technology",
+    "market": "US"
+  },
+  "MTSI": {
+    "name": "MACOM Technology Solutions",
+    "market": "US"
+  },
+  "MXL": {
+    "name": "MaxLinear",
+    "market": "US"
+  },
+  "NBIS": {
+    "name": "Nebius Group",
+    "market": "US"
+  },
+  "NEE": {
+    "name": "NextEra Energy",
+    "market": "US"
+  },
+  "NOVT": {
+    "name": "Novanta",
+    "market": "US"
+  },
+  "NTAP": {
+    "name": "NetApp",
+    "market": "US"
+  },
+  "NVMI": {
+    "name": "Nova Ltd",
+    "market": "US"
+  },
+  "ON": {
+    "name": "ON Semiconductor",
+    "market": "US"
+  },
+  "ONTO": {
+    "name": "Onto Innovation",
+    "market": "US"
+  },
+  "POET": {
+    "name": "POET Technologies",
+    "market": "US"
+  },
+  "POWI": {
+    "name": "Power Integrations",
+    "market": "US"
+  },
+  "PSTG": {
+    "name": "Pure Storage",
+    "market": "US"
+  },
+  "QBTS": {
+    "name": "D-Wave Quantum",
+    "market": "US"
+  },
+  "RGTI": {
+    "name": "Rigetti Computing",
+    "market": "US"
+  },
+  "RKLB": {
+    "name": "Rocket Lab USA",
+    "market": "US"
+  },
+  "SANM": {
+    "name": "Sanmina Corp",
+    "market": "US"
+  },
+  "SITM": {
+    "name": "SiTime Corporation",
+    "market": "US"
+  },
+  "SMTC": {
+    "name": "Semtech Corp",
+    "market": "US"
+  },
+  "SPCX": {
+    "name": "SpaceX",
+    "market": "US"
+  },
+  "TEL": {
+    "name": "TE Connectivity",
+    "market": "US"
+  },
+  "TSEM": {
+    "name": "Tower Semiconductor",
+    "market": "US"
+  },
+  "TXN": {
+    "name": "Texas Instruments",
+    "market": "US"
+  },
+  "UCTT": {
+    "name": "Ultra Clean Holdings",
+    "market": "US"
+  },
+  "VIAV": {
+    "name": "Viavi Solutions",
+    "market": "US"
+  },
+  "WRD": {
+    "name": "WeRide",
+    "market": "US"
+  },
+  "AWX SP": {
+    "name": "AEM Holdings",
+    "market": "SG"
+  },
+  "558 SP": {
+    "name": "UMS Integration",
+    "market": "SG"
+  },
+  "ATS AV": {
+    "name": "AT&S Austria",
+    "market": "EU"
+  },
+  "402340 KS": {
+    "name": "SK Square",
+    "market": "KR"
+  },
+  "6173 TT": {
+    "name": "Prosperity Dielectrics",
+    "market": "TW"
+  },
+  "6278 JT": {
+    "name": "Union Tool",
+    "market": "JP"
+  },
+  "6368 JT": {
+    "name": "Organo Corporation",
+    "market": "JP"
+  },
+  "6370 JT": {
+    "name": "Kurita Water Industries",
+    "market": "JP"
+  },
+  "6492 JT": {
+    "name": "Okano Valve Mfg",
+    "market": "JP"
+  },
+  "6728 JT": {
+    "name": "Ulvac Inc",
+    "market": "JP"
+  },
+  "6855 JT": {
+    "name": "Japan Electronic Materials",
+    "market": "JP"
+  },
+  "VST": {
+    "name": "Vistra Corp",
+    "market": "US"
+  },
+  "CEG": {
+    "name": "Constellation Energy",
+    "market": "US"
+  },
+  "TLN": {
+    "name": "Talen Energy",
+    "market": "US"
+  },
+  "MOD": {
+    "name": "Modine Manufacturing",
+    "market": "US"
+  },
+  "SNDK": {
+    "name": "SanDisk Corp",
+    "market": "US"
+  },
+  "IREN": {
+    "name": "IREN Limited",
+    "market": "US"
+  },
+  "CORZ": {
+    "name": "Core Scientific",
+    "market": "US"
+  },
+  "APLD": {
+    "name": "Applied Digital",
+    "market": "US"
+  },
+  "CIFR": {
+    "name": "Cipher Mining",
+    "market": "US"
+  },
+  "RIOT": {
+    "name": "Riot Platforms",
+    "market": "US"
+  },
+  "BTDR": {
+    "name": "Bitdeer Technologies",
+    "market": "US"
+  },
+  "HUT": {
+    "name": "Hut 8 Corp",
+    "market": "US"
+  },
+  "CLSK": {
+    "name": "CleanSpark",
+    "market": "US"
+  },
+  "BITF": {
+    "name": "Bitfarms",
+    "market": "US"
   }
 }
