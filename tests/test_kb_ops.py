@@ -11,7 +11,13 @@ from scripts.heartbeat import _scheduled_slot_due, _time_due, load_agenda
 from scripts.headlines import _format_telegram_brief
 from scripts.learning import add_lesson, init_schema as init_learning_schema, learning_context, log_interaction, record_feedback
 from scripts.parallel_ingest import _destination_for, _normalize_triage
-from scripts.research_memory import DATA_DIR, _num, ingest_file as ingest_research_memory_file, init_schema as init_research_memory_schema
+from scripts.research_memory import (
+    DATA_DIR,
+    _normalise_target_price_currency,
+    _num,
+    ingest_file as ingest_research_memory_file,
+    init_schema as init_research_memory_schema,
+)
 from scripts.web_context import should_use_web
 
 
@@ -219,6 +225,13 @@ class ResearchMemoryTests(unittest.TestCase):
         self.assertEqual(_num("1,234.5%"), 1234.5)
         self.assertEqual(_num(">$1,000"), 1000.0)
         self.assertIsNone(_num("3x YoY increase"))
+
+    def test_research_memory_normalizes_target_price_currency_by_market(self):
+        self.assertEqual(_normalise_target_price_currency("3583 TT", "USD"), "TWD")
+        self.assertEqual(_normalise_target_price_currency("005930 KS", "USD"), "KRW")
+        self.assertEqual(_normalise_target_price_currency("285A", "USD"), "JPY")
+        self.assertEqual(_normalise_target_price_currency("2498.HK", "USD"), "HKD")
+        self.assertEqual(_normalise_target_price_currency("AAPL", "USD"), "USD")
 
     def test_research_memory_ingests_nested_other_key_metrics(self):
         payload = {

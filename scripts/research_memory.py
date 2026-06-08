@@ -18,6 +18,7 @@ from scripts import kb
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+COMPANIES_PATH = PROJECT_ROOT / "config" / "companies.json"
 
 
 def _now() -> str:
@@ -26,6 +27,46 @@ def _now() -> str:
 
 def _json(value) -> str:
     return json.dumps(value or {}, ensure_ascii=False, sort_keys=True)
+
+
+def _load_companies() -> dict:
+    try:
+        return json.loads(COMPANIES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _currency_for_subject(subject: str | None) -> str | None:
+    if not subject:
+        return None
+    subject = str(subject).strip()
+    companies = _load_companies()
+    market = (companies.get(subject) or {}).get("market")
+    if market == "TW" or subject.endswith((" TT", ".TW")):
+        return "TWD"
+    if market == "KR" or subject.endswith((" KS", ".KS")):
+        return "KRW"
+    if market == "JP" or subject.endswith((" JT", ".T")) or re.match(r"^\d{3,5}[A-Z]?$", subject):
+        return "JPY"
+    if market == "HK" or subject.endswith((" HK", ".HK")):
+        return "HKD"
+    if market == "US":
+        return "USD"
+    return None
+
+
+def _normalise_target_price_currency(subject: str | None, currency: str | None) -> str | None:
+    inferred = _currency_for_subject(subject)
+    if not inferred:
+        return currency
+    if not currency:
+        return inferred
+    currency = str(currency).strip().upper()
+    # A lot of extracted broker notes default to USD when the ticker suffix clearly
+    # identifies the quote currency. Trust the market suffix for target prices.
+    if currency == "USD" and inferred != "USD":
+        return inferred
+    return currency
 
 
 def _num(value):
@@ -325,7 +366,7 @@ def _insert_rating(conn, source_uri: str, scope: dict, meta: dict, rating: dict)
             meta.get("publisher"),
             rating.get("rating"),
             _num(rating.get("target_price")),
-            rating.get("target_price_currency"),
+            _normalise_target_price_currency(scope["subject"], rating.get("target_price_currency")),
             _num(rating.get("previous_target_price")),
             meta.get("published_at"),
             _now(),
