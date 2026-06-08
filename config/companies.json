@@ -1507,5 +1507,61 @@
   "BITF": {
     "name": "Bitfarms",
     "market": "US"
+  },
+  "RDW": {
+    "name": "Redwire Corporation",
+    "market": "US"
+  },
+  "AVIO.IM": {
+    "name": "Avio S.p.A.",
+    "market": "OTHER"
+  },
+  "CEREBRAS": {
+    "name": "Cerebras Systems, Inc.",
+    "market": "US"
+  },
+  "INFINEON": {
+    "name": "Infineon Technologies AG",
+    "market": "EU"
+  },
+  "STM": {
+    "name": "STMicroelectronics",
+    "market": "EU"
+  },
+  "PI": {
+    "name": "Power Integrations, Inc.",
+    "market": "US"
+  },
+  "NAVITAS": {
+    "name": "Navitas Semiconductor",
+    "market": "US"
+  },
+  "REN": {
+    "name": "Renesas Electronics Corp",
+    "market": "JP"
+  },
+  "WIIWYNN": {
+    "name": "Wiwynn Corp",
+    "market": "TW"
+  },
+  "WITRONS_PLACEHOLDER": {
+    "name": "Wistron Corp",
+    "market": "TW"
+  },
+  "ASUSTEK_PLACEHOLDER": {
+    "name": "Asustek (Asus) (placeholder)",
+    "market": "TW"
+  },
+  "GIGA-BYTE_PLACEHOLDER": {
+    "name": "Giga-Byte Technology (placeholder)",
+    "market": "TW"
+  },
+  "Cohu": {
+    "name": "Cohu, Inc.",
+    "market": "US"
+  },
+  "Chroma ATE": {
+    "name": "Chroma ATE Inc",
+    "market": "TW"
   }
 }

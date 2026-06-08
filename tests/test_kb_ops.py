@@ -1,0 +1,188 @@
+import json
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts import kb
+from scripts.analyst import _filter_single_headline_context
+from scripts.claude_export import import_claude_export
+from scripts.heartbeat import _time_due, load_agenda
+from scripts.headlines import _format_telegram_brief
+from scripts.parallel_ingest import _destination_for, _normalize_triage
+from scripts.research_memory import _num, init_schema as init_research_memory_schema
+
+
+class KBTests(unittest.TestCase):
+    def test_index_text_builds_chunks_and_fts(self):
+        with tempfile.TemporaryDirectory() as td:
+            conn = kb.connect(Path(td) / "kb.sqlite")
+            result = kb.index_text(
+                title="NVDA HBM note",
+                text="NVIDIA AI server demand is material for HBM, MU, and 000660 KS.",
+                source_type="note",
+                source_uri="test:note",
+                metadata={"tickers": ["NVDA", "MU"]},
+                embed=False,
+                conn=conn,
+            )
+            self.assertTrue(result["indexed"])
+            self.assertEqual(result["chunks"], 1)
+            hits = conn.execute(
+                "SELECT count(*) AS n FROM chunks_fts WHERE chunks_fts MATCH 'NVIDIA'"
+            ).fetchone()["n"]
+            self.assertEqual(hits, 1)
+            conn.close()
+
+    def test_chunk_text_overlaps_long_text(self):
+        text = " ".join(f"word{i}" for i in range(1200))
+        chunks = kb.chunk_text(text, chunk_chars=600, overlap=80)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(chunks))
+
+
+class ImportTests(unittest.TestCase):
+    def test_claude_export_dry_run_counts_conversation(self):
+        payload = [
+            {
+                "uuid": "abc123",
+                "name": "Semiconductor conversation",
+                "chat_messages": [
+                    {"sender": "human", "text": "What matters for HBM?"},
+                    {"sender": "assistant", "text": "HBM matters for NVIDIA and memory suppliers."},
+                ],
+            }
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "conversations.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            stats = import_claude_export(path, dry_run=True)
+            self.assertEqual(stats["conversations"], 1)
+            self.assertEqual(stats["written"], 0)
+
+
+class AgendaTests(unittest.TestCase):
+    def test_agenda_front_matter_parser(self):
+        text = """---
+timezone: Asia/Hong_Kong
+folder: /tmp/research
+folder_sweep_times: [08:30, 20:30]
+headline_interval_hours: 2
+headline_sweep_times: [02:00, 08:00, 14:00, 20:00]
+notify: true
+---
+"""
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "agenda.md"
+            path.write_text(text, encoding="utf-8")
+            agenda = load_agenda(path)
+            self.assertEqual(agenda["timezone"], "Asia/Hong_Kong")
+            self.assertEqual(agenda["folder_sweep_times"], ["08:30", "20:30"])
+            self.assertEqual(agenda["headline_sweep_times"], ["02:00", "08:00", "14:00", "20:00"])
+            self.assertTrue(agenda["notify"])
+
+    def test_headline_schedule_does_not_catch_up_old_slots(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        state = {}
+        now = datetime(2026, 6, 8, 13, 45, tzinfo=ZoneInfo("Asia/Hong_Kong"))
+        due = _time_due(
+            now,
+            ["02:00", "08:00", "14:00", "20:00"],
+            state,
+            "headline",
+            catch_up=False,
+        )
+        self.assertFalse(due)
+
+
+class HeadlineBriefTests(unittest.TestCase):
+    def test_telegram_brief_formats_inline_actions(self):
+        items = [
+            {
+                "rank": 1,
+                "source": "Digitimes",
+                "published_at": "2026-06-08T03:02:00+00:00",
+                "url": "https://www.digitimes.com/example",
+            }
+        ]
+        rows = [
+            {
+                "rank": 1,
+                "key_sentence": "Nvidia and MediaTek deepened AI chip cooperation",
+                "summary": (
+                    "MediaTek is expanding collaboration with Nvidia around AI chips. "
+                    "The tie-up points to a broader Taiwan AI supply-chain push."
+                ),
+            }
+        ]
+        brief = _format_telegram_brief(items, rows, window_hours=6)
+        self.assertIn("<b>Nvidia and MediaTek deepened AI chip cooperation.</b>", brief)
+        self.assertIn("</b>\nMediaTek is expanding collaboration", brief)
+        self.assertIn('<a href="https://www.digitimes.com/example">link</a>', brief)
+        self.assertIn("analyse: /headline_1", brief)
+        self.assertIn("/headline_1", brief)
+
+    def test_single_headline_context_drops_digest_batches(self):
+        context = [
+            {
+                "title": "Tech Brief 2026-06-08 13:42",
+                "source_type": "headlines",
+                "metadata": {"items": [{"rank": 1}, {"rank": 2}]},
+            },
+            {
+                "title": "Unimicron ABF substrate note",
+                "source_type": "research",
+                "metadata": {},
+            },
+        ]
+        filtered = _filter_single_headline_context(
+            context,
+            "Taiwan ecosystem strengthens AI chip supply chain",
+        )
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["title"], "Unimicron ABF substrate note")
+
+
+class ResearchMemoryTests(unittest.TestCase):
+    def test_research_memory_schema_initializes(self):
+        conn = sqlite3.connect(":memory:")
+        init_research_memory_schema(conn)
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'research_%'"
+            )
+        }
+        self.assertIn("research_sources", tables)
+        self.assertIn("research_estimates", tables)
+        conn.close()
+
+    def test_research_memory_numeric_parser(self):
+        self.assertEqual(_num("1,234.5%"), 1234.5)
+        self.assertEqual(_num(">$1,000"), 1000.0)
+        self.assertIsNone(_num("3x YoY increase"))
+
+
+class FastIngestTests(unittest.TestCase):
+    def test_fast_ingest_destination_for_single_name(self):
+        triage = {
+            "primary_type": "single_name",
+            "primary_subject": "3037 TT",
+            "confidence": "high",
+        }
+        dest, status = _destination_for(triage, Path("Unimicron.pdf"))
+        self.assertEqual(status, "research")
+        self.assertIn("3037 TT", str(dest))
+        self.assertTrue(str(dest).endswith("_Unimicron.pdf"))
+
+    def test_fast_ingest_normalizes_missing_triage_fields(self):
+        triage = _normalize_triage({}, Path("note.pdf"))
+        self.assertEqual(triage["primary_type"], "news_article")
+        self.assertEqual(triage["primary_subject"], "News Article")
+        self.assertEqual(triage["materiality"], {"tickers": {}, "themes": {}})
+
+
+if __name__ == "__main__":
+    unittest.main()

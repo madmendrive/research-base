@@ -1,5 +1,7 @@
 """Flask web GUI for the Research Pipeline."""
 
+import truststore; truststore.inject_into_ssl()  # Use Windows cert store (handles Norton SSL inspection)
+
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -723,7 +725,8 @@ def _fetch_google_news_rss(query, max_items=30, source_list=None, include_chines
 
                 if len(items) >= max_items:
                     return items
-        except Exception:
+        except Exception as e:
+            print(f"[news rss] fetch failed for {feed_url[:80]}... : {type(e).__name__}: {e}")
             continue
 
     return items

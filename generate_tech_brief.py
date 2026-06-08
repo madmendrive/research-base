@@ -1,4 +1,6 @@
 """Standalone script to generate the Tech Brief — last 24h of semiconductor/tech headlines."""
+import truststore; truststore.inject_into_ssl()  # Use Windows cert store (handles Norton SSL inspection)
+
 import json
 import sys
 import xml.etree.ElementTree as ET

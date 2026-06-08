@@ -22,17 +22,20 @@ import truststore; truststore.inject_into_ssl()
 import os
 import json
 import logging
+import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     ContextTypes,
@@ -44,6 +47,7 @@ TELEGRAM_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 
 PROJECT_ROOT = Path(__file__).parent
 COMPANIES_PATH = PROJECT_ROOT / "config" / "companies.json"
+TELEGRAM_UPLOAD_DIR = PROJECT_ROOT / "data" / "_telegram_uploads"
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -120,9 +124,16 @@ def _chunk(text: str, size: int = 3800) -> list[str]:
     return chunks
 
 
-async def _send_long(update: Update, text: str) -> None:
+async def _send_long(update: Update, text: str, parse_mode: str | None = None) -> None:
     for piece in _chunk(text):
-        await update.message.reply_text(piece)
+        await update.message.reply_text(piece, parse_mode=parse_mode)
+
+
+async def _send_long_html(update: Update, text: str) -> None:
+    from scripts.notify import telegram_html
+
+    for piece in _chunk(text):
+        await update.message.reply_text(telegram_html(piece), parse_mode="HTML")
 
 
 async def _run_blocking(fn, *args, **kwargs):
@@ -141,14 +152,23 @@ async def _run_blocking(fn, *args, **kwargs):
 
 HELP_TEXT = (
     "Research pipeline bot.\n\n"
-    "Default: drop a PDF and I'll figure out what it is, store it, and "
-    "cross-read it against every ticker/theme it touches.\n\n"
+    "Default: drop a PDF and I'll queue it for the research worker to classify, store, and index.\n\n"
     "Manual overrides:\n"
-    "/research TICKER — force as sellside research\n"
-    "/macro AUTHOR    — force as macro research\n"
-    "/thematic THEME  — force as thematic research\n\n"
-    "/status — show pending override\n"
-    "/cancel — clear pending override\n"
+    "/research TICKER - force as sellside research\n"
+    "/macro AUTHOR    - force as macro research\n"
+    "/thematic THEME  - force as thematic research\n\n"
+    "Knowledge base:\n"
+    "/ask QUESTION     - analyst-style investment answer\n"
+    "/search QUERY     - diagnostic KB matches\n"
+    "/note TARGET TEXT - store your own note\n"
+    "/download TICKER  - queue IR/regulatory download\n"
+    "/pending          - show held low-confidence files\n"
+    "/headline_#       - analyse one item from the latest Tech Brief\n\n"
+    "Research memory:\n"
+    "/memory SUBJECT   - structured views/estimates snapshot\n"
+    "/mapstatus        - structured memory coverage\n\n"
+    "/status - show pending override\n"
+    "/cancel - clear pending override\n"
 )
 
 
@@ -221,8 +241,230 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 # ---------------------------------------------------------------------------
+# Knowledge-base commands
+# ---------------------------------------------------------------------------
+
+async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    question = " ".join(context.args).strip()
+    if not question:
+        await update.message.reply_text("Usage: /ask QUESTION")
+        return
+    from scripts.analyst import answer_question
+
+    await update.message.chat.send_action(ChatAction.TYPING)
+    answer = await _run_blocking(answer_question, question)
+    await _send_long_html(update, answer)
+
+
+async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    query = " ".join(context.args).strip()
+    if not query:
+        await update.message.reply_text("Usage: /search QUERY")
+        return
+    from scripts.kb import format_results, search
+
+    results = await _run_blocking(search, query)
+    await _send_long(update, format_results(results))
+
+
+async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /note TICKER_OR_THEME note text...")
+        return
+    target = context.args[0].strip()
+    text = " ".join(context.args[1:]).strip()
+    from scripts.jobs import enqueue_job
+
+    job_id = enqueue_job(
+        "store_note",
+        {
+            "target": target,
+            "text": text,
+            "author": update.effective_user.username or str(update.effective_user.id),
+            "notify": True,
+        },
+    )
+    await update.message.reply_text(f"Queued note for {target}. Job #{job_id}.")
+
+
+async def cmd_download(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    if not context.args:
+        await update.message.reply_text("Usage: /download TICKER")
+        return
+    ticker = context.args[0].strip()
+    companies = _load_companies()
+    if ticker not in companies:
+        await update.message.reply_text(f"Unknown ticker '{ticker}'.")
+        return
+    from scripts.jobs import enqueue_job
+
+    job_id = enqueue_job(
+        "download_materials",
+        {"ticker": ticker, "since": 2020, "limit": 200, "notify": True},
+        dedupe_key=f"download_materials:{ticker}",
+    )
+    await update.message.reply_text(f"Queued download-materials for {ticker}. Job #{job_id}.")
+
+
+async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    from scripts.ops import list_pending
+
+    pending = list_pending(limit=10)
+    if not pending:
+        await update.message.reply_text("No pending low-confidence files.")
+        return
+    for item in pending:
+        token = item["token"]
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Confirm", callback_data=f"pc:{token}"),
+                InlineKeyboardButton("Reclassify", callback_data=f"pr:{token}"),
+                InlineKeyboardButton("Drop", callback_data=f"pd:{token}"),
+            ]
+        ])
+        await update.message.reply_text(
+                f"{item['file']}\nModified: {item['modified_at']}",
+            reply_markup=keyboard,
+        )
+
+
+async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    subject = " ".join(context.args).strip()
+    if not subject:
+        await update.message.reply_text("Usage: /memory TICKER_OR_THEME_OR_AUTHOR")
+        return
+    from scripts.research_memory import subject_snapshot
+
+    snapshot = await _run_blocking(subject_snapshot, subject, 8)
+    await _send_long(update, snapshot)
+
+
+async def cmd_mapstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    from scripts.research_memory import status
+
+    stats = await _run_blocking(status)
+    text = (
+        "Structured research memory\n"
+        f"Sources: {stats['research_sources']}\n"
+        f"Views: {stats['research_views']}\n"
+        f"Estimates/data points: {stats['research_estimates']}\n"
+        f"Ratings: {stats['research_ratings']}\n"
+        f"Changes: {stats['research_changes']}\n"
+        f"Debates: {stats['research_debates']}\n"
+        f"Research PDFs: {stats['research_pdfs']}\n"
+        f"PDFs missing extraction JSON: {stats['pdfs_missing_extraction_json']}"
+    )
+    await update.message.reply_text(text)
+
+
+async def handle_pending_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    if not _is_allowed(update):
+        await query.answer("Not authorised.", show_alert=True)
+        return
+    await query.answer()
+    data = query.data or ""
+    try:
+        action, token = data.split(":", 1)
+    except ValueError:
+        await query.edit_message_text("Unknown pending action.")
+        return
+    from scripts.jobs import enqueue_job
+    from scripts.ops import find_pending_by_token
+
+    path = find_pending_by_token(token)
+    if not path:
+        await query.edit_message_text("Pending file not found.")
+        return
+    if action == "pc":
+        job_id = enqueue_job("confirm_pending", {"path": str(path), "notify": True}, dedupe_key=f"confirm_pending:{token}")
+        await query.edit_message_text(f"Queued confirm for {path.name}. Job #{job_id}.")
+    elif action == "pd":
+        job_id = enqueue_job("drop_pending", {"path": str(path), "notify": True}, dedupe_key=f"drop_pending:{token}")
+        await query.edit_message_text(f"Queued drop for {path.name}. Job #{job_id}.")
+    elif action == "pr":
+        await query.edit_message_text(
+            "Use /research TICKER, /macro AUTHOR, or /thematic THEME, then upload the file again."
+        )
+    else:
+        await query.edit_message_text("Unknown pending action.")
+
+
+async def handle_headline_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    if not _is_allowed(update):
+        await query.answer("Not authorised.", show_alert=True)
+        return
+    await query.answer("Queued headline analysis.")
+    data = query.data or ""
+    try:
+        _, key = data.split(":", 1)
+    except ValueError:
+        await query.message.reply_text("Unknown headline action.")
+        return
+    from scripts.jobs import enqueue_job
+    from scripts.headlines import get_headline
+
+    item = get_headline(key)
+    if not item:
+        await query.message.reply_text("Could not find that headline in the latest headline state.")
+        return
+    job_id = enqueue_job(
+        "analyse_headline",
+        {"key": key, "notify": True},
+        dedupe_key=f"analyse_headline:{key}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
+    )
+    await query.message.reply_text(
+        f"Queued analysis for headline #{item.get('rank', '?')}: {item.get('title', '')[:160]}\n"
+        f"Job #{job_id}."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Document handler — the main flow
 # ---------------------------------------------------------------------------
+
+async def _queue_latest_headline_by_rank(update: Update, rank: int) -> bool:
+    from scripts.jobs import enqueue_job
+    from scripts.headlines import get_headline_by_rank
+
+    item = get_headline_by_rank(rank)
+    if not item:
+        await update.message.reply_text("Could not find that headline in the latest Tech Brief.")
+        return True
+    key = item.get("key")
+    if not key:
+        await update.message.reply_text("That headline is missing its analysis key.")
+        return True
+    job_id = enqueue_job(
+        "analyse_headline",
+        {"key": key, "notify": True},
+        dedupe_key=f"analyse_headline:{key}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
+    )
+    await update.message.reply_text(
+        f"Queued analysis for headline #{rank}: {item.get('title', '')[:160]}\n"
+        f"Job #{job_id}."
+    )
+    return True
+
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
@@ -262,13 +504,43 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         try:
+            persistent_path = _persist_upload(tmp_path)
+            from scripts.jobs import enqueue_job
+            from scripts.kb import file_hash
+
             if override:
-                await _process_with_override(update, override, tmp_path)
+                job_id = enqueue_job(
+                    "store_override",
+                    {"path": str(persistent_path), **override, "notify": True},
+                    dedupe_key=f"store_override:{file_hash(persistent_path)}:{override['mode']}:{override['arg']}",
+                )
+                await update.message.reply_text(
+                    f"Queued forced ingest ({override['mode']} -> {override['arg']}). Job #{job_id}."
+                )
             else:
-                await _process_auto(update, tmp_path)
+                job_id = enqueue_job(
+                    "ingest_file",
+                    {"path": str(persistent_path), "notify": True},
+                    dedupe_key=f"ingest_file:{file_hash(persistent_path)}",
+                )
+                await update.message.reply_text(
+                    f"Queued {doc.file_name} for ingestion. Job #{job_id}.\n"
+                    "The worker will process it in the background and send the analysis here when finished."
+                )
         except Exception as e:
-            log.exception("ingest failed")
-            await update.message.reply_text(f"Ingestion failed: {e}")
+            log.exception("queue failed")
+            await update.message.reply_text(f"Could not queue ingestion: {e}")
+
+
+def _persist_upload(tmp_path: Path) -> Path:
+    from scripts.kb import slugify
+
+    TELEGRAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    safe_stem = slugify(tmp_path.stem, max_len=100)
+    dest = TELEGRAM_UPLOAD_DIR / f"{stamp}_{safe_stem}{tmp_path.suffix.lower()}"
+    shutil.copy2(tmp_path, dest)
+    return dest
 
 
 async def _process_auto(update: Update, pdf_path: Path) -> None:
@@ -350,6 +622,13 @@ async def _process_with_override(update: Update, override: dict, pdf_path: Path)
 async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return await _deny(update)
+    text = (update.message.text or "").strip() if update.message else ""
+    command = text.split()[0] if text else ""
+    if command.startswith("/headline_"):
+        rank_text = command.split("_", 1)[1].split("@", 1)[0]
+        if rank_text.isdigit():
+            await _queue_latest_headline_by_rank(update, int(rank_text))
+            return
     await update.message.reply_text("Unknown command. /help for the list.")
 
 
@@ -385,6 +664,15 @@ def main() -> None:
     app.add_handler(CommandHandler("thematic", cmd_thematic))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("ask", cmd_ask))
+    app.add_handler(CommandHandler("search", cmd_search))
+    app.add_handler(CommandHandler("note", cmd_note))
+    app.add_handler(CommandHandler("download", cmd_download))
+    app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("memory", cmd_memory))
+    app.add_handler(CommandHandler("mapstatus", cmd_mapstatus))
+    app.add_handler(CallbackQueryHandler(handle_pending_action, pattern=r"^p[crd]:"))
+    app.add_handler(CallbackQueryHandler(handle_headline_action, pattern=r"^ha:"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.COMMAND, handle_unknown))
     app.add_error_handler(on_error)

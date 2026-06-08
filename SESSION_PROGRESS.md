@@ -116,7 +116,7 @@ as a LaunchAgent in production.
 1. **Restart bulk-ingest** — with all the Round 2 fixes in. Expect ~$30–60 (Haiku triage + Sonnet extraction + Opus synthesis). Resumable from current state (3 already processed).
 2. **Bulk cross-cut pass** — `python main.py bulk-cross-cut --dry-run` first. Materiality gate makes this cheaper than originally estimated.
 3. **Mac mini port** — see deployment steps above.
-4. **Heartbeat / agenda.md scheduler** — twice-daily folder sweep + 2-hourly headlines, all keyed off a hand-editable `agenda.md`.
+4. **Heartbeat / agenda.md scheduler** — twice-daily folder sweep + 6-hourly headline briefs, all keyed off a hand-editable `agenda.md`.
 5. **Email sweep** — IMAP for Substack inbox.
 6. **Inline-keyboard confirmation for held files** — v2 of low-confidence routing: send `[Confirm] [Reclassify] [Drop]` buttons via Telegram instead of a text-only message.
 

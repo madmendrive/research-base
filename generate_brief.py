@@ -1,5 +1,7 @@
 """Standalone script to generate the Morning/Evening Brief.
 Called as a subprocess from the Flask app. No Flask imports."""
+import truststore; truststore.inject_into_ssl()  # Use Windows cert store (handles Norton SSL inspection)
+
 import json
 import sys
 import xml.etree.ElementTree as ET

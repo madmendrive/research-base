@@ -420,6 +420,59 @@ def bulk_ingest_cmd(folder, dry_run, limit, with_cross_cut, force, no_notify):
     )
 
 
+@cli.command("bulk-ingest-fast")
+@click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
+              show_default=True,
+              help="Folder of PDFs to stage/ingest (recursive by default).")
+@click.option("--parallel", default=4, show_default=True, type=click.IntRange(1, 12),
+              help="Parallel read-only extraction workers.")
+@click.option("--limit", default=0, type=int,
+              help="Process at most this many uncommitted files (0 = unlimited).")
+@click.option("--force", is_flag=True,
+              help="Re-stage/re-commit files even if already processed.")
+@click.option("--stage-only", is_flag=True,
+              help="Only run the parallel LLM stage; do not write into data/ or KB.")
+@click.option("--commit-only", is_flag=True,
+              help="Commit existing staged files without making LLM calls.")
+@click.option("--no-recursive", is_flag=True,
+              help="Only scan the top-level folder.")
+@click.option("--no-embed", is_flag=True,
+              help="Build FTS/raw KB index but skip OpenAI embeddings.")
+def bulk_ingest_fast_cmd(folder, parallel, limit, force, stage_only, commit_only, no_recursive, no_embed):
+    """Fast provider-pluggable ingest: parallel extraction, single-writer commit."""
+    from scripts.parallel_ingest import bulk_ingest_fast
+
+    if stage_only and commit_only:
+        click.echo("Error: --stage-only and --commit-only are mutually exclusive.")
+        raise SystemExit(1)
+
+    try:
+        stats = bulk_ingest_fast(
+            folder=folder,
+            parallel=parallel,
+            limit=limit,
+            force=force,
+            stage_only=stage_only,
+            commit_only=commit_only,
+            recursive=not no_recursive,
+            embed=not no_embed,
+        )
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("bulk-ingest-fast-status")
+@click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
+              show_default=True,
+              help="Folder to compare against staged/committed state.")
+def bulk_ingest_fast_status_cmd(folder):
+    """Show resumable fast-ingest staging and commit status."""
+    from scripts.parallel_ingest import fast_ingest_status
+
+    click.echo(json.dumps(fast_ingest_status(folder), indent=2, ensure_ascii=False))
+
+
 @cli.command("bulk-cross-cut")
 @click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
               show_default=True,
@@ -465,6 +518,149 @@ def sweep_cmd(folder, with_cross_cut, scan_existing):
     """
     from scripts.sweeper import sweep
     sweep(folder=folder, with_cross_cut=with_cross_cut, scan_existing=scan_existing)
+
+
+@cli.command("worker")
+@click.option("--once", is_flag=True, help="Process at most one queued job, then exit.")
+@click.option("--sleep", "sleep_seconds", default=5, show_default=True,
+              help="Seconds to sleep when no job is queued.")
+def worker_cmd(once, sleep_seconds):
+    """Run the single-writer job worker."""
+    from scripts.jobs import worker
+    worker(run_once=once, sleep_seconds=sleep_seconds)
+
+
+@cli.command("heartbeat")
+@click.option("--agenda", default="agenda.md", show_default=True,
+              help="Path to agenda.md with schedule front matter.")
+@click.option("--once", is_flag=True, help="Evaluate the agenda once, enqueue due jobs, then exit.")
+def heartbeat_cmd(agenda, once):
+    """Run the agenda scheduler that enqueues folder/email/headline jobs."""
+    from scripts.heartbeat import heartbeat
+    heartbeat(agenda_path=agenda, run_once=once)
+
+
+@cli.command("kb-reindex")
+@click.option("--source", default="all", show_default=True,
+              type=click.Choice(["all", "research", "ir", "filings", "claude", "email", "headlines", "company", "skills", "notes"],
+                                case_sensitive=False),
+              help="Corpus slice to index.")
+@click.option("--force", is_flag=True, help="Re-index documents even if their hash is unchanged.")
+@click.option("--limit", default=0, type=int, help="Index at most N files (0 = unlimited).")
+@click.option("--no-embed", is_flag=True,
+              help="Skip embedding creation and build only SQLite metadata/FTS.")
+def kb_reindex_cmd(source, force, limit, no_embed):
+    """Build or refresh the local KB index over data/."""
+    from scripts.kb import reindex_source
+    stats = reindex_source(source=source, force=force, limit=limit, embed=not no_embed)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("research-map-reindex")
+@click.option("--force", is_flag=True, help="Rebuild structured research-memory tables from scratch.")
+@click.option("--limit", default=0, type=int, help="Index at most N extracted JSON notes (0 = unlimited).")
+def research_map_reindex_cmd(force, limit):
+    """Build structured author views, estimates, ratings, and thesis-change tables."""
+    from scripts.research_memory import rebuild
+
+    stats = rebuild(force=force, limit=limit)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("research-map-status")
+def research_map_status_cmd():
+    """Show structured research-memory coverage and extraction backlog."""
+    from scripts.research_memory import extraction_backlog, status
+
+    stats = status()
+    stats["backlog_sample"] = extraction_backlog(limit=12)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("research-map-show")
+@click.argument("subject")
+@click.option("--limit", default=8, show_default=True, help="Rows per section.")
+def research_map_show_cmd(subject, limit):
+    """Show the structured memory snapshot for a ticker, theme, or author."""
+    from scripts.research_memory import subject_snapshot
+
+    click.echo(subject_snapshot(subject, limit=limit))
+
+
+@cli.command("import-claude-export")
+@click.argument("zip_or_dir", type=click.Path(exists=True))
+@click.option("--dry-run", is_flag=True, help="Count conversations without writing or indexing.")
+@click.option("--force", is_flag=True, help="Overwrite exported Markdown and re-index.")
+def import_claude_export_cmd(zip_or_dir, dry_run, force):
+    """Import an official Claude export ZIP/directory into the KB."""
+    from scripts.claude_export import import_claude_export
+    stats = import_claude_export(zip_or_dir, dry_run=dry_run, force=force)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("import-skills")
+@click.argument("source_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--dry-run", is_flag=True, help="Count skill files without copying or indexing.")
+@click.option("--force", is_flag=True, help="Overwrite copied skill files and re-index.")
+def import_skills_cmd(source_dir, dry_run, force):
+    """Import Claude/Codex skill files into data/_skills and the KB."""
+    from scripts.skills_import import import_skills
+    stats = import_skills(source_dir, dry_run=dry_run, force=force)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("email-sweep")
+@click.option("--once", is_flag=True, help="Compatibility flag; email sweep is one-shot.")
+@click.option("--notify", is_flag=True, help="Send Telegram summary if new messages are found.")
+@click.option("--limit", default=50, show_default=True, help="Inspect at most N latest IMAP messages.")
+@click.option("--analyse-attachments", is_flag=True, help="Send full analyst read-throughs for PDF attachments.")
+def email_sweep_cmd(once, notify, limit, analyse_attachments):
+    """Sweep the configured IMAP mailbox for research emails."""
+    from scripts.email_sweep import email_sweep
+    stats = email_sweep(notify=notify, limit=limit, analyse_attachments=analyse_attachments)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("headline-sweep")
+@click.option("--once", is_flag=True, help="Compatibility flag; headline sweep is one-shot.")
+@click.option("--notify", is_flag=True, help="Send the ranked digest to Telegram.")
+@click.option("--max-items", default=20, show_default=True,
+              help="Maximum material headlines in the digest.")
+@click.option("--window-hours", default=6, show_default=True,
+              help="Lookback window for headline search and digest ranking.")
+def headline_sweep_cmd(once, notify, max_items, window_hours):
+    """Sweep configured headline sources and produce a ranked digest."""
+    from scripts.headlines import headline_sweep
+    stats = headline_sweep(notify=notify, max_digest_items=max_items, window_hours=window_hours)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("folder-scan")
+@click.option("--folder", default=r"C:\Users\Owner\Downloads\research-inbox",
+              show_default=True,
+              help="Folder of PDFs to enqueue.")
+@click.option("--notify", is_flag=True, help="Notify Telegram with a scan summary.")
+@click.option("--recursive", is_flag=True, help="Scan nested folders too.")
+@click.option("--analyse", is_flag=True, help="Send full analyst read-throughs for each queued PDF.")
+def folder_scan_cmd(folder, notify, recursive, analyse):
+    """Scan a folder and enqueue PDFs for ingestion by the worker."""
+    from scripts.folder_scan import folder_scan
+    stats = folder_scan(folder=folder, notify=notify, recursive=recursive, analyse=analyse)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("ask")
+@click.argument("question", nargs=-1, required=True)
+@click.option("--sources", default="all", show_default=True,
+              type=click.Choice(["all", "research", "claude", "company", "headlines", "email", "skills"],
+                                case_sensitive=False),
+              help="Which KB source set to search.")
+@click.option("--limit", default=8, show_default=True, help="Number of KB chunks to retrieve.")
+def ask_cmd(question, sources, limit):
+    """Ask the analyst agent using the local KB as private memory."""
+    from scripts.analyst import answer_question
+    text = " ".join(question).strip()
+    click.echo(answer_question(text, sources=sources, limit=limit))
 
 
 @cli.command()

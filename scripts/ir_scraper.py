@@ -14,7 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 DATA_DIR = PROJECT_ROOT / "data"
 
-USER_AGENT = "ResearchPipeline/1.0 (ernest.limwj@gmail.com)"
+# Real Chrome UA — Q4 Inc / Cloudflare / Akamai IR fronts return 403 to
+# generic "ResearchPipeline/1.0"-style identifiers. SEC EDGAR has its own
+# downloader (scripts/sec_edgar.py) that uses a compliance-identifying UA.
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 
 DOWNLOAD_DELAY = 1  # seconds between downloads
 DEFAULT_LIMIT = 200  # max files per run
@@ -58,7 +65,19 @@ def _load_companies():
 
 def _get_session():
     session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
+    # Cloudflare/Q4 fingerprint on the full header set, not just UA. A bare
+    # UA + Accept:*/* trips bot detection; mirror what Chrome actually sends.
+    session.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    })
     return session
 
 
@@ -94,10 +113,18 @@ def _extract_filename(url):
     return name
 
 
+# IR file CDNs treated as same-domain (assets live here, not on the IR host).
+# Q4 Inc. (s29.q4cdn.com, s23.q4cdn.com, etc.) is used by most US large-cap IR sites.
+_IR_FILE_CDN_HOSTS = re.compile(r"^s\d+\.q4cdn\.com$", re.I)
+
+
 def _is_same_domain(file_url, ir_url):
     """Check if a file URL is on the same domain (or subdomain) as the IR URL."""
     ir_domain = urlparse(ir_url).netloc.lower()
     file_domain = urlparse(file_url).netloc.lower()
+
+    if _IR_FILE_CDN_HOSTS.match(file_domain):
+        return True
 
     # Extract the base domain (last two parts, e.g. "apple.com")
     def base_domain(netloc):
@@ -152,6 +179,11 @@ def _looks_like_js_rendered(html):
     if soup.find("div", id="root") and len(text) < 300:
         return True
     if soup.find("div", id="app") and len(text) < 300:
+        return True
+    # Q4 Inc IR templates: large HTML shell but the actual news/event list
+    # is XHR-loaded. Visible text is almost entirely nav chrome.
+    lower = html.lower()
+    if ("q4inc" in lower or "q4cdn" in lower) and len(html) > 20000 and len(text) < 5000:
         return True
     return False
 
@@ -232,7 +264,19 @@ def _fetch_page_playwright(url):
                 user_agent=USER_AGENT, ignore_https_errors=True,
             )
             page = context.new_page()
-            page.goto(url, timeout=45000, wait_until="networkidle")
+            # "domcontentloaded" instead of "networkidle": Q4/Cloudflare IR sites
+            # keep firing analytics/chat XHRs forever, so networkidle never resolves.
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+            try:
+                page.wait_for_load_state("load", timeout=10000)
+            except Exception:
+                pass
+            # Give async-rendered file lists a chance to mount, but cap the wait
+            # so chat/analytics pings don't keep us forever.
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
 
             # Expand all accordions/dropdowns and scroll for lazy content
             _expand_accordions(page)
@@ -482,6 +526,16 @@ def scrape_ir(ticker, limit=DEFAULT_LIMIT, since_year=DEFAULT_SINCE_YEAR, deep=F
             extra_files, extra_ext = _find_downloadable_links(
                 extra_html, extra_base, ir_url, since_year,
             )
+            # User-curated extra URLs always have content; a 0-hit means the
+            # file list is JS-injected and the heuristic in _fetch_page missed
+            # it. Force a Playwright render and re-extract.
+            if not extra_files:
+                pw_html, pw_final = _fetch_page_playwright(extra_url)
+                if pw_html:
+                    extra_base = pw_final or extra_base
+                    extra_files, extra_ext = _find_downloadable_links(
+                        pw_html, extra_base, ir_url, since_year,
+                    )
             new_files = extra_files - all_file_urls
             all_external_skipped |= extra_ext
             print(f"  Found {len(extra_files)} file(s) ({len(new_files)} new).")
