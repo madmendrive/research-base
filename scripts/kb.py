@@ -584,8 +584,8 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0, emb
 
 
 def _fts_query(query: str) -> str:
-    tokens = re.findall(r"[A-Za-z0-9_.$-]+", query)
-    tokens = [t.strip("-") for t in tokens if len(t.strip("-")) >= 2]
+    tokens = re.findall(r"[A-Za-z0-9_]+", query)
+    tokens = [t for t in tokens if len(t) >= 2]
     return " OR ".join(tokens[:12]) or query.replace('"', '""')
 
 
@@ -606,7 +606,12 @@ def _source_where(sources: str) -> tuple[str, list[str]]:
     return f" AND d.source_type IN ({placeholders})", allowed
 
 
-def search(query: str, sources: str = "all", limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
+def search(
+    query: str,
+    sources: str = "all",
+    limit: int = DEFAULT_SEARCH_LIMIT,
+    use_vector: bool = True,
+) -> list[dict]:
     conn = connect()
     try:
         where_sql, params = _source_where(sources)
@@ -631,17 +636,19 @@ def search(query: str, sources: str = "all", limit: int = DEFAULT_SEARCH_LIMIT) 
             score = 1.0 / (1.0 + max(float(row["rank"]), 0.0)) + max(0.0, 0.25 - pos * 0.01)
             results[int(row["chunk_id"])] = _row_to_result(row, score, "fts")
 
-        vector_rows = conn.execute(
-            f"""
-            SELECT c.id AS chunk_id, c.text, c.embedding_json, d.id AS document_id,
-                   d.title, d.source_type, d.source_path, d.url, d.entities_json,
-                   d.metadata_json
-            FROM chunks c
-            JOIN documents d ON d.id = c.document_id
-            WHERE c.embedding_json IS NOT NULL {where_sql}
-            """,
-            params,
-        ).fetchall()
+        vector_rows = []
+        if use_vector:
+            vector_rows = conn.execute(
+                f"""
+                SELECT c.id AS chunk_id, c.text, c.embedding_json, d.id AS document_id,
+                       d.title, d.source_type, d.source_path, d.url, d.entities_json,
+                       d.metadata_json
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.embedding_json IS NOT NULL {where_sql}
+                """,
+                params,
+            ).fetchall()
         if vector_rows:
             try:
                 q_vec = EmbeddingClient().embed_texts([query])[0]

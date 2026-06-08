@@ -18,6 +18,7 @@ from scripts.research_memory import (
     ingest_file as ingest_research_memory_file,
     init_schema as init_research_memory_schema,
 )
+from scripts.study import _cost_estimate_usd, _safe_slug
 from scripts.web_context import should_use_web
 
 
@@ -49,6 +50,9 @@ class KBTests(unittest.TestCase):
         chunks = kb.chunk_text(text, chunk_chars=600, overlap=80)
         self.assertGreater(len(chunks), 1)
         self.assertTrue(all(chunks))
+
+    def test_fts_query_splits_market_suffix_punctuation(self):
+        self.assertEqual(kb._fts_query("3037.TT ABF substrate"), "3037 OR TT OR ABF OR substrate")
 
 
 class ImportTests(unittest.TestCase):
@@ -373,6 +377,15 @@ class FastIngestTests(unittest.TestCase):
         self.assertEqual(triage["primary_type"], "news_article")
         self.assertEqual(triage["primary_subject"], "News Article")
         self.assertEqual(triage["materiality"], {"tickers": {}, "themes": {}})
+
+
+class StudyAgentTests(unittest.TestCase):
+    def test_safe_slug_removes_path_punctuation(self):
+        self.assertEqual(_safe_slug("8035 JP / Tokyo Electron"), "8035_JP_Tokyo_Electron")
+
+    def test_cost_estimate_uses_provider_defaults(self):
+        cost = _cost_estimate_usd(1_000_000, 1_000_000, provider="anthropic", model="claude-opus-4-7")
+        self.assertAlmostEqual(cost, 90.0)
 
 
 if __name__ == "__main__":

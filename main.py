@@ -663,6 +663,77 @@ def ask_cmd(question, sources, limit):
     click.echo(answer_question(text, sources=sources, limit=limit))
 
 
+@cli.command("study")
+@click.option("--scope", default="all", show_default=True,
+              type=click.Choice(["all", "jpm"], case_sensitive=False),
+              help="Research slice to study.")
+@click.option("--topics", default="semiconductor,semis,memory,dram,nand,hbm,spe,wfe,ai infrastructure,electronic components",
+              show_default=True,
+              help="Comma-separated topic filters used to prioritize/select study targets.")
+@click.option("--max-cost", default=30.0, show_default=True, type=float,
+              help="Estimated API spend ceiling in USD.")
+@click.option("--limit", default=0, type=int,
+              help="Study at most N targets after topic filtering (0 = no count limit).")
+@click.option("--provider", default=None,
+              help="Study model provider. Defaults to STUDY_PROVIDER/ANALYST_STRUCTURED_PROVIDER/ANALYST_PROVIDER.")
+@click.option("--model", default=None,
+              help="Study model. Defaults to STUDY_MODEL/provider-specific analyst model.")
+@click.option("--max-output-tokens", default=3500, show_default=True,
+              help="Reserved output-token budget per dossier.")
+@click.option("--timeout", default=120.0, show_default=True,
+              help="Per-model-call timeout in seconds.")
+@click.option("--force", is_flag=True,
+              help="Re-study targets even if a dossier already exists in study state.")
+@click.option("--dry-run", is_flag=True,
+              help="Plan and estimate cost without making model calls.")
+@click.option("--no-embed", is_flag=True,
+              help="Write dossiers and FTS index only; skip embedding creation.")
+def study_cmd(scope, topics, max_cost, limit, provider, model, max_output_tokens, timeout, force, dry_run, no_embed):
+    """Study the local research base and write durable company/theme dossiers."""
+    import os
+    from scripts.study import StudyConfig, run_study
+
+    provider = (
+        provider
+        or os.environ.get("STUDY_PROVIDER")
+        or os.environ.get("ANALYST_STRUCTURED_PROVIDER")
+        or os.environ.get("ANALYST_PROVIDER")
+        or "anthropic"
+    )
+    provider_l = provider.lower().strip()
+    if model is None:
+        if provider_l in {"openai", "gpt"}:
+            model = (
+                os.environ.get("STUDY_MODEL")
+                or os.environ.get("ANALYST_STRUCTURED_OPENAI_MODEL")
+                or os.environ.get("ANALYST_FALLBACK_MODEL")
+                or "gpt-5.5"
+            )
+        else:
+            model = (
+                os.environ.get("STUDY_MODEL")
+                or os.environ.get("ANALYST_STRUCTURED_ANTHROPIC_MODEL")
+                or os.environ.get("ANALYST_MODEL")
+                or "claude-opus-4-7"
+            )
+    topic_tuple = tuple(t.strip() for t in (topics or "").split(",") if t.strip())
+    config = StudyConfig(
+        scope=scope,
+        topics=topic_tuple,
+        max_cost=max_cost,
+        limit=limit,
+        provider=provider,
+        model=model,
+        max_output_tokens=max_output_tokens,
+        timeout=timeout,
+        force=force,
+        dry_run=dry_run,
+        embed=not no_embed,
+    )
+    stats = run_study(config)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
 @cli.command()
 @click.option("--port", default=5000, help="Port to run on.")
 def gui(port):
