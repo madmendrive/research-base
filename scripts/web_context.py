@@ -29,6 +29,35 @@ TEMPORAL_TRIGGERS = {
     "updated",
 }
 
+SOURCE_CONSTRAINED_HINTS = {
+    "according to jpm",
+    "jpm's",
+    "jp morgan",
+    "j.p. morgan",
+    "semianalysis",
+    "semi analysis",
+    "according to semi",
+    "my notes",
+    "your notes",
+    "kb",
+    "knowledge base",
+}
+
+EXPLICIT_WEB_HINTS = {
+    "web",
+    "search",
+    "google",
+    "live",
+    "today",
+    "current share price",
+    "share price today",
+    "market cap",
+    "news",
+    "headline",
+    "filing",
+    "filings",
+}
+
 
 def should_use_web(query: str, *, kb_result_count: int = 0, has_structured_context: bool = False) -> bool:
     mode = os.environ.get("ANALYST_WEB_CONTEXT", "auto").strip().lower()
@@ -38,6 +67,9 @@ def should_use_web(query: str, *, kb_result_count: int = 0, has_structured_conte
         return True
 
     query_l = (query or "").lower()
+    if has_structured_context and any(hint in query_l for hint in SOURCE_CONSTRAINED_HINTS):
+        if not any(hint in query_l for hint in EXPLICIT_WEB_HINTS):
+            return False
     if any(trigger in query_l for trigger in TEMPORAL_TRIGGERS):
         return True
     if re.search(r"\b20[2-9][0-9]\b", query_l) and any(

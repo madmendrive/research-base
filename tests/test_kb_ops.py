@@ -324,6 +324,15 @@ class WebContextTests(unittest.TestCase):
     def test_web_context_auto_triggers_for_latest_questions(self):
         self.assertTrue(
             should_use_web(
+                "What is the latest news on Nvidia's current share price reaction?",
+                kb_result_count=5,
+                has_structured_context=True,
+            )
+        )
+
+    def test_web_context_auto_skips_source_constrained_kb_questions(self):
+        self.assertFalse(
+            should_use_web(
                 "What are JPM's latest DRAM ASP growth estimates for 2026 and 2027?",
                 kb_result_count=5,
                 has_structured_context=True,

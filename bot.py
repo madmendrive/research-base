@@ -22,6 +22,7 @@ import truststore; truststore.inject_into_ssl()
 import os
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import shutil
 import tempfile
 from datetime import datetime
@@ -48,10 +49,16 @@ TELEGRAM_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 PROJECT_ROOT = Path(__file__).parent
 COMPANIES_PATH = PROJECT_ROOT / "config" / "companies.json"
 TELEGRAM_UPLOAD_DIR = PROJECT_ROOT / "data" / "_telegram_uploads"
+BOT_RUNTIME_LOG = PROJECT_ROOT / "data" / "_bot_runtime.log"
 
+BOT_RUNTIME_LOG.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(BOT_RUNTIME_LOG, maxBytes=2_000_000, backupCount=3, encoding="utf-8"),
+    ],
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bot")
@@ -200,14 +207,22 @@ async def _send_long_html(update: Update, text: str) -> None:
         await update.message.reply_text(telegram_html(piece), parse_mode="HTML")
 
 
-async def _run_blocking(fn, *args, **kwargs):
+async def _run_blocking(fn, *args, timeout_seconds: float | None = None, **kwargs):
     """Run a blocking function (Claude API calls, store_*) off the event loop."""
     import asyncio
     loop = asyncio.get_running_loop()
     if kwargs:
         from functools import partial
-        return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
-    return await loop.run_in_executor(None, fn, *args)
+        future = loop.run_in_executor(None, partial(fn, *args, **kwargs))
+    else:
+        future = loop.run_in_executor(None, fn, *args)
+    if timeout_seconds:
+        return await asyncio.wait_for(future, timeout=timeout_seconds)
+    return await future
+
+
+def _analyst_timeout_seconds() -> float:
+    return float(os.environ.get("BOT_ANALYST_TIMEOUT", os.environ.get("ANALYST_TIMEOUT", "600")))
 
 
 async def _log_analyst_interaction(update: Update, question: str, answer: str) -> None:
@@ -339,8 +354,26 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from scripts.analyst import answer_question
 
     await update.message.chat.send_action(ChatAction.TYPING)
-    answer = await _run_blocking(answer_question, question)
+    ack = await update.message.reply_text(
+        "Working on it. I am checking the local KB and structured research memory now."
+    )
+    log.info("/ask received user_id=%s chars=%s", update.effective_user.id, len(question))
+    try:
+        answer = await _run_blocking(
+            answer_question,
+            question,
+            timeout_seconds=_analyst_timeout_seconds(),
+        )
+    except TimeoutError:
+        log.exception("/ask analyst timeout")
+        await ack.edit_text("The analyst call timed out before it could return. Please try again or narrow the question.")
+        return
+    except Exception as e:
+        log.exception("/ask analyst failed")
+        await ack.edit_text(f"The analyst call failed: {type(e).__name__}: {e}")
+        return
     await _log_analyst_interaction(update, question, answer)
+    await ack.edit_text("Analysis ready.")
     await _send_long_html(update, answer)
 
 
@@ -767,8 +800,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     from scripts.analyst import answer_question
 
     await update.message.chat.send_action(ChatAction.TYPING)
-    answer = await _run_blocking(answer_question, text)
+    ack = await update.message.reply_text(
+        "Working on it. I am checking the local KB and structured research memory now."
+    )
+    log.info("plain analyst question received user_id=%s chars=%s", update.effective_user.id, len(text))
+    try:
+        answer = await _run_blocking(
+            answer_question,
+            text,
+            timeout_seconds=_analyst_timeout_seconds(),
+        )
+    except TimeoutError:
+        log.exception("plain analyst question timed out")
+        await ack.edit_text("The analyst call timed out before it could return. Please try again or narrow the question.")
+        return
+    except Exception as e:
+        log.exception("plain analyst question failed")
+        await ack.edit_text(f"The analyst call failed: {type(e).__name__}: {e}")
+        return
     await _log_analyst_interaction(update, text, answer)
+    await ack.edit_text("Analysis ready.")
     await _send_long_html(update, answer)
 
 
