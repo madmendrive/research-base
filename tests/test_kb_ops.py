@@ -11,13 +11,15 @@ from scripts.heartbeat import _scheduled_slot_due, _time_due, load_agenda
 from scripts.headlines import _format_telegram_brief
 from scripts.learning import add_lesson, init_schema as init_learning_schema, learning_context, log_interaction, record_feedback
 from scripts.parallel_ingest import _destination_for, _normalize_triage
-from scripts.research_memory import _num, init_schema as init_research_memory_schema
+from scripts.research_memory import DATA_DIR, _num, ingest_file as ingest_research_memory_file, init_schema as init_research_memory_schema
 from scripts.web_context import should_use_web
 
 
 class KBTests(unittest.TestCase):
     def test_index_text_builds_chunks_and_fts(self):
-        with tempfile.TemporaryDirectory() as td:
+        test_dir = DATA_DIR / "MU" / "research" / "notes" / "_test_research_memory"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_dir) as td:
             conn = kb.connect(Path(td) / "kb.sqlite")
             result = kb.index_text(
                 title="NVDA HBM note",
@@ -55,7 +57,9 @@ class ImportTests(unittest.TestCase):
                 ],
             }
         ]
-        with tempfile.TemporaryDirectory() as td:
+        test_dir = DATA_DIR / "MU" / "research" / "notes" / "_test_research_memory"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_dir) as td:
             path = Path(td) / "conversations.json"
             path.write_text(json.dumps(payload), encoding="utf-8")
             stats = import_claude_export(path, dry_run=True)
@@ -215,6 +219,50 @@ class ResearchMemoryTests(unittest.TestCase):
         self.assertEqual(_num("1,234.5%"), 1234.5)
         self.assertEqual(_num(">$1,000"), 1000.0)
         self.assertIsNone(_num("3x YoY increase"))
+
+    def test_research_memory_ingests_nested_other_key_metrics(self):
+        payload = {
+            "metadata": {
+                "source": "J.P. Morgan",
+                "author": "JPM Analyst",
+                "date": "2026-06-02",
+                "title": "Memory Market Update",
+                "source_type": "sellside_research",
+            },
+            "key_estimates": {
+                "other_key_metrics": [
+                    {
+                        "metric": "DRAM ASP growth",
+                        "values": {
+                            "CY2026": {
+                                "value": "+20%",
+                                "unit": "%",
+                                "source_detail": "JPM expects DRAM ASPs to rise on HBM tightness.",
+                            }
+                        },
+                    }
+                ]
+            },
+        }
+        test_dir = DATA_DIR / "MU" / "research" / "notes" / "_test_research_memory"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_dir) as td:
+            path = Path(td) / "JPM_Memory_Market_Update_2026-06-02.pdf.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            conn = sqlite3.connect(":memory:")
+            conn.row_factory = sqlite3.Row
+            ingest_research_memory_file(conn, path)
+            row = conn.execute(
+                "SELECT publisher, author, metric, period, value_text, unit, source_detail FROM research_estimates"
+            ).fetchone()
+            self.assertEqual(row["publisher"], "J.P. Morgan")
+            self.assertEqual(row["author"], "JPM Analyst")
+            self.assertEqual(row["metric"], "DRAM ASP growth")
+            self.assertEqual(row["period"], "CY2026")
+            self.assertEqual(row["value_text"], "+20%")
+            self.assertEqual(row["unit"], "%")
+            self.assertIn("HBM tightness", row["source_detail"])
+            conn.close()
 
 
 class LearningMemoryTests(unittest.TestCase):

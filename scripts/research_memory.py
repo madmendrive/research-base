@@ -410,7 +410,21 @@ def _ingest_standard_estimates(conn, source_uri: str, scope: dict, meta: dict, e
         metric = entry.get("metric")
         values = entry.get("values") or {}
         for period, value in values.items():
-            _insert_estimate(conn, source_uri, scope, meta, metric, period, value)
+            if isinstance(value, dict):
+                _insert_estimate(
+                    conn,
+                    source_uri,
+                    scope,
+                    meta,
+                    metric,
+                    period,
+                    value.get("value"),
+                    unit=value.get("unit"),
+                    yoy_growth=value.get("yoy_growth"),
+                    source_detail=value.get("source_detail") or value.get("context"),
+                )
+            else:
+                _insert_estimate(conn, source_uri, scope, meta, metric, period, value)
 
 
 def _ingest_key_data_points(conn, source_uri: str, scope: dict, meta: dict, payload: dict) -> None:
