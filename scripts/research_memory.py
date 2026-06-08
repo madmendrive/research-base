@@ -914,6 +914,18 @@ def query_context(query: str, limit: int = 10) -> str:
                 params.append(f"%{term}%")
         return " OR ".join(clauses) if clauses else "1=1", params
 
+    def relevance_expr(cols: list[str], search_terms: list[str] | None = None) -> tuple[str, list[str]]:
+        search_terms = terms if search_terms is None else search_terms
+        parts = []
+        params = []
+        for term in search_terms:
+            term_l = term.lower()
+            weight = 3 if term_l in {"asp", "dram", "nand", "hbm", "qoq", "yoy"} else 1
+            for col in cols:
+                parts.append(f"CASE WHEN lower({col}) LIKE ? THEN {weight} ELSE 0 END")
+                params.append(f"%{term}%")
+        return " + ".join(parts) if parts else "0", params
+
     source_terms = [
         alias
         for _canonical, aliases in requested_sources
@@ -994,6 +1006,10 @@ def query_context(query: str, limit: int = 10) -> str:
             "e.subject", "e.metric", "e.period", "e.value_text", "e.yoy_growth",
             "e.source_detail", "e.publisher", "e.author", "s.title",
         ])
+        estimate_relevance, estimate_relevance_params = relevance_expr([
+            "e.subject", "e.metric", "e.period", "e.value_text", "e.yoy_growth",
+            "e.source_detail", "s.title",
+        ])
         if source_where:
             where = f"({where}) AND ({source_where})"
             params = [*params, *source_params]
@@ -1003,14 +1019,14 @@ def query_context(query: str, limit: int = 10) -> str:
                 f"""
                 SELECT e.subject, e.publisher, e.author, e.metric, e.period,
                        e.value_text, e.unit, e.yoy_growth, e.source_detail,
-                       e.published_at, s.title
+                       e.published_at, s.title, ({estimate_relevance}) AS relevance
                 FROM research_estimates e
                 JOIN research_sources s ON s.source_uri = e.source_uri
                 WHERE {where}
-                ORDER BY e.published_at DESC, e.id DESC
+                ORDER BY relevance DESC, e.published_at DESC, e.id DESC
                 LIMIT ?
                 """,
-                [*params, limit],
+                [*estimate_relevance_params, *params, limit],
             )
         ]
 
