@@ -704,10 +704,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if "tech brief" in lower or "headline" in lower:
         await _send_long_html(update, _tech_brief_status_text())
         return
-    await update.message.reply_text(
-        "I received that, but plain text chat is only wired for ops questions right now. "
-        "Use /ask QUESTION for analyst synthesis, or upload a PDF for ingestion and analysis."
-    )
+    from scripts.analyst import answer_question
+
+    await update.message.chat.send_action(ChatAction.TYPING)
+    answer = await _run_blocking(answer_question, text)
+    await _send_long_html(update, answer)
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

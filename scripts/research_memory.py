@@ -807,79 +807,196 @@ def query_context(query: str, limit: int = 10) -> str:
     query = (query or "").strip()
     if not query:
         return ""
-    terms = [t.lower() for t in re.findall(r"[A-Za-z0-9.$_-]{2,}", query)[:8]]
-    if not terms:
+    stopwords = {
+        "what", "which", "when", "where", "how", "the", "for", "and", "or",
+        "are", "is", "was", "were", "did", "you", "your", "latest", "view",
+        "views", "estimate", "estimates", "similar", "different", "from",
+    }
+    source_aliases = {
+        "JPM": ["jpm", "jp morgan", "j.p. morgan", "jpmorgan", "jpmorgan chase"],
+        "SemiAnalysis": ["semianalysis", "semi analysis"],
+        "Morgan Stanley": ["morgan stanley"],
+        "Goldman Sachs": ["goldman", "goldman sachs"],
+        "BofA": ["bofa", "bank of america"],
+        "Barclays": ["barclays"],
+        "UBS": ["ubs"],
+        "Citi": ["citi", "citigroup"],
+        "Nomura": ["nomura"],
+        "Jefferies": ["jefferies"],
+    }
+    query_l = query.lower()
+    requested_sources = [
+        (canonical, aliases)
+        for canonical, aliases in source_aliases.items()
+        if any(alias in query_l for alias in aliases)
+    ]
+    source_alias_words = {
+        part
+        for _canonical, aliases in requested_sources
+        for alias in aliases
+        for part in re.findall(r"[a-z0-9]+", alias)
+    }
+
+    terms = []
+    for term in re.findall(r"[A-Za-z0-9.$_-]{2,}", query):
+        term_l = term.lower().strip("._-$")
+        if not term_l or term_l in stopwords or term_l in source_alias_words:
+            continue
+        if term_l not in terms:
+            terms.append(term_l)
+        if len(terms) >= 14:
+            break
+    if not terms and not requested_sources:
         return ""
 
-    def like_clauses(cols: list[str]) -> tuple[str, list[str]]:
+    def like_clauses(cols: list[str], search_terms: list[str] | None = None) -> tuple[str, list[str]]:
+        search_terms = terms if search_terms is None else search_terms
         clauses = []
         params = []
-        for term in terms:
+        for term in search_terms:
             for col in cols:
                 clauses.append(f"lower({col}) LIKE ?")
                 params.append(f"%{term}%")
-        return " OR ".join(clauses), params
+        return " OR ".join(clauses) if clauses else "1=1", params
+
+    source_terms = [
+        alias
+        for _canonical, aliases in requested_sources
+        for alias in aliases
+    ]
 
     conn = kb.connect()
     init_schema(conn)
     try:
-        where, params = like_clauses(["subject", "theme", "view_text", "publisher", "author"])
+        source_context_lines = []
+        source_where = ""
+        source_params = []
+        if requested_sources:
+            source_where, source_params = like_clauses(
+                ["s.publisher", "s.author", "s.title", "s.source_path"],
+                source_terms,
+            )
+            for canonical, aliases in requested_sources:
+                alias_where, alias_params = like_clauses(
+                    ["publisher", "author", "title", "source_path"],
+                    aliases,
+                )
+                rows = [
+                    dict(r)
+                    for r in conn.execute(
+                        f"""
+                        SELECT title, publisher, author, published_at, corpus_type, subject, source_path
+                        FROM research_sources
+                        WHERE {alias_where}
+                        ORDER BY published_at DESC, updated_at DESC
+                        LIMIT 5
+                        """,
+                        alias_params,
+                    )
+                ]
+                if rows:
+                    source_context_lines.append(f"- {canonical}: {len(rows)} recent structured source match(es) sampled.")
+                    for row in rows[:3]:
+                        source_context_lines.append(
+                            f"  - {row.get('published_at') or 'n.d.'}: "
+                            f"{row.get('title') or Path(row.get('source_path') or '').name} "
+                            f"({row.get('publisher') or row.get('author') or 'Unknown'})."
+                        )
+                else:
+                    source_context_lines.append(
+                        f"- {canonical}: no structured research source currently matches this publisher/author name."
+                    )
+
+            if all("no structured research source" in line for line in source_context_lines):
+                lines = ["<structured_research_memory>", "Source coverage:", *source_context_lines]
+                lines.append("</structured_research_memory>")
+                return "\n".join(lines)
+
+        where, params = like_clauses([
+            "v.subject", "v.theme", "v.view_text", "v.publisher", "v.author",
+            "s.title",
+        ])
+        if source_where:
+            where = f"({where}) AND ({source_where})"
+            params = [*params, *source_params]
         views = [
             dict(r)
             for r in conn.execute(
                 f"""
-                SELECT subject, publisher, author, theme, sentiment, view_text, published_at
-                FROM research_views
+                SELECT v.subject, v.publisher, v.author, v.theme, v.sentiment,
+                       v.view_text, v.published_at, s.title
+                FROM research_views v
+                JOIN research_sources s ON s.source_uri = v.source_uri
                 WHERE {where}
-                ORDER BY published_at DESC, id DESC
+                ORDER BY v.published_at DESC, v.id DESC
                 LIMIT ?
                 """,
                 [*params, limit],
             )
         ]
 
-        where, params = like_clauses(["subject", "metric", "publisher", "author"])
+        where, params = like_clauses([
+            "e.subject", "e.metric", "e.period", "e.value_text", "e.yoy_growth",
+            "e.source_detail", "e.publisher", "e.author", "s.title",
+        ])
+        if source_where:
+            where = f"({where}) AND ({source_where})"
+            params = [*params, *source_params]
         estimates = [
             dict(r)
             for r in conn.execute(
                 f"""
-                SELECT subject, publisher, author, metric, period, value_text, unit,
-                       yoy_growth, source_detail, published_at
-                FROM research_estimates
+                SELECT e.subject, e.publisher, e.author, e.metric, e.period,
+                       e.value_text, e.unit, e.yoy_growth, e.source_detail,
+                       e.published_at, s.title
+                FROM research_estimates e
+                JOIN research_sources s ON s.source_uri = e.source_uri
                 WHERE {where}
-                ORDER BY published_at DESC, id DESC
+                ORDER BY e.published_at DESC, e.id DESC
                 LIMIT ?
                 """,
                 [*params, limit],
             )
         ]
 
-        where, params = like_clauses(["subject", "publisher", "author"])
+        where, params = like_clauses(["r.subject", "r.publisher", "r.author", "s.title"])
+        if source_where:
+            where = f"({where}) AND ({source_where})"
+            params = [*params, *source_params]
         ratings = [
             dict(r)
             for r in conn.execute(
                 f"""
-                SELECT subject, publisher, author, rating, target_price,
-                       target_price_currency, previous_target_price, published_at
-                FROM research_ratings
+                SELECT r.subject, r.publisher, r.author, r.rating, r.target_price,
+                       r.target_price_currency, r.previous_target_price,
+                       r.published_at, s.title
+                FROM research_ratings r
+                JOIN research_sources s ON s.source_uri = r.source_uri
                 WHERE {where}
-                ORDER BY published_at DESC, id DESC
+                ORDER BY r.published_at DESC, r.id DESC
                 LIMIT ?
                 """,
                 [*params, max(4, limit // 2)],
             )
         ]
 
-        where, params = like_clauses(["subject", "debate", "bull_case", "bear_case", "publisher", "author"])
+        where, params = like_clauses([
+            "d.subject", "d.debate", "d.bull_case", "d.bear_case",
+            "d.publisher", "d.author", "s.title",
+        ])
+        if source_where:
+            where = f"({where}) AND ({source_where})"
+            params = [*params, *source_params]
         debates = [
             dict(r)
             for r in conn.execute(
                 f"""
-                SELECT subject, publisher, author, debate, bull_case, bear_case,
-                       author_lean, published_at
-                FROM research_debates
+                SELECT d.subject, d.publisher, d.author, d.debate, d.bull_case,
+                       d.bear_case, d.author_lean, d.published_at, s.title
+                FROM research_debates d
+                JOIN research_sources s ON s.source_uri = d.source_uri
                 WHERE {where}
-                ORDER BY published_at DESC, id DESC
+                ORDER BY d.published_at DESC, d.id DESC
                 LIMIT ?
                 """,
                 [*params, max(4, limit // 2)],
@@ -888,10 +1005,13 @@ def query_context(query: str, limit: int = 10) -> str:
     finally:
         conn.close()
 
-    if not any((views, estimates, ratings, debates)):
+    if not any((views, estimates, ratings, debates, locals().get("source_context_lines"))):
         return ""
 
     lines = ["<structured_research_memory>"]
+    if locals().get("source_context_lines"):
+        lines.append("Source coverage:")
+        lines.extend(source_context_lines)
     if ratings:
         lines.append("Ratings/targets:")
         for r in ratings:
@@ -908,6 +1028,7 @@ def query_context(query: str, limit: int = 10) -> str:
             growth = f"; {e.get('yoy_growth')}" if e.get("yoy_growth") else ""
             lines.append(
                 f"- {e.get('subject')} | {e.get('publisher') or e.get('author') or 'Unknown'} "
+                f"({e.get('published_at') or 'n.d.'}; {e.get('title') or 'untitled'}) "
                 f"{e.get('metric')} {e.get('period') or ''}: {e.get('value_text')} "
                 f"{e.get('unit') or ''}{growth}{detail}"
             )
@@ -919,7 +1040,7 @@ def query_context(query: str, limit: int = 10) -> str:
                 view = view[:517] + "..."
             lines.append(
                 f"- {v.get('subject')} | {v.get('publisher') or v.get('author') or 'Unknown'} "
-                f"({v.get('published_at') or 'n.d.'}) | {v.get('theme')} "
+                f"({v.get('published_at') or 'n.d.'}; {v.get('title') or 'untitled'}) | {v.get('theme')} "
                 f"[{v.get('sentiment') or 'n/a'}]: {view}"
             )
     if debates:
