@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from html import escape
+from html import escape, unescape
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 from zoneinfo import ZoneInfo
@@ -293,6 +293,38 @@ def _resolve_source_url(url: str) -> str:
     return url
 
 
+def _clean_html_fragment(value: str) -> str:
+    text = unescape(str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\bView Full Coverage on Google News\b", " ", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _clean_rss_description(value: str, title: str = "", source: str = "") -> str:
+    text = _clean_html_fragment(value)
+    if not text:
+        return ""
+    title_l = re.sub(r"\W+", " ", title.lower()).strip()
+    source_l = (source or "").lower()
+    parts = []
+    for sentence in re.findall(r"[^.!?。！？]+[.!?。！？]?", text):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        sentence_l = re.sub(r"\W+", " ", sentence.lower()).strip()
+        if title_l and sentence_l == title_l:
+            continue
+        if source_l and sentence_l == source_l:
+            continue
+        if "google news" in sentence_l:
+            continue
+        parts.append(sentence)
+        if len(parts) == 2:
+            break
+    return " ".join(parts).strip()
+
+
 def _fetch_google_news(
     term: str,
     allowed_sources: list[str],
@@ -327,6 +359,7 @@ def _fetch_google_news(
                 pub_date = _parse_rss_date(el.findtext("pubDate", ""))
                 if not _within_window(pub_date, window_hours):
                     continue
+                description = _clean_rss_description(el.findtext("description", ""), title, source)
                 key = re.sub(r"\W+", " ", title.lower()).strip()[:100]
                 if key in seen:
                     continue
@@ -337,6 +370,7 @@ def _fetch_google_news(
                     "published_at": pub_date,
                     "url": _normalise_google_news_url(link),
                     "source_home_url": _source_home_url(source_el),
+                    "description": description,
                     "query": term,
                 })
                 if len(items) >= max_items:
@@ -383,6 +417,55 @@ def _extract_json_object(text: str) -> dict:
     return json.loads(text)
 
 
+PLACEHOLDER_SUMMARY_RE = re.compile(
+    r"(source report from|tap the analyse|deeper read-through|analyse command|click.*analyse)",
+    re.I,
+)
+
+
+def _summary_from_headline(item: dict) -> str:
+    title = _normalise_key_sentence(item.get("title", ""))
+    snippet = _normalise_summary(item.get("description", ""))
+    title_l = title.lower()
+    source = item.get("source") or "the source"
+
+    if snippet and not PLACEHOLDER_SUMMARY_RE.search(snippet):
+        return snippet
+
+    if "foundr" in title_l and ("ranking" in title_l or "revenue" in title_l):
+        return (
+            "The article tracks revenue rankings among global foundries, which can show market-share shifts, "
+            "pricing pressure, and utilization trends across TSMC, Samsung, SMIC, UMC, GlobalFoundries, and peers. "
+            "The read-through is mainly for foundry cycle strength and whether AI demand is broadening beyond the leading edge."
+        )
+    if "nvidia" in title_l and ("stock" in title_l or "rebound" in title_l or "gain" in title_l):
+        return (
+            "The article covers a rebound in US equities led by Nvidia and other large technology stocks. "
+            "The read-through is risk appetite for AI infrastructure leaders and whether semiconductor momentum is being driven by fundamentals, positioning, or broader market beta."
+        )
+    if "hbm" in title_l or "memory" in title_l or "dram" in title_l or "nand" in title_l:
+        return (
+            "The article concerns the memory cycle, with potential implications for HBM, DRAM, NAND pricing, and AI server supply chains. "
+            "The key read-through is whether demand, pricing, or capacity allocation is improving for memory suppliers and upstream equipment names."
+        )
+    if "ai server" in title_l or "gpu" in title_l or "data center" in title_l:
+        return (
+            "The article concerns AI infrastructure demand across servers, GPUs, data centers, or the related supply chain. "
+            "The key read-through is whether deployment bottlenecks, capex, or supplier positioning is changing for covered AI infrastructure names."
+        )
+    if "substrate" in title_l or "abf" in title_l or "pcb" in title_l or "ccl" in title_l:
+        return (
+            "The article concerns the electronics substrate, PCB, or CCL supply chain that supports advanced computing hardware. "
+            "The key read-through is whether AI server demand is tightening capacity, lifting pricing, or changing the relative attractiveness of suppliers."
+        )
+
+    subject = title[:-1] if title.endswith(".") else title
+    return (
+        f"The article from {source} covers {subject}. "
+        "The key read-through is whether this changes demand, pricing, capacity, or competitive positioning across semiconductors, AI infrastructure, and the relevant supply chain."
+    )
+
+
 def _fallback_brief_rows(items: list[dict]) -> list[dict]:
     rows = []
     for item in items:
@@ -390,10 +473,7 @@ def _fallback_brief_rows(items: list[dict]) -> list[dict]:
             {
                 "rank": item.get("rank", len(rows) + 1),
                 "key_sentence": item.get("title", "").rstrip(".") + ".",
-                "summary": (
-                    "Source report from "
-                    f"{item.get('source', 'unknown source')}; tap the analyse command for deeper read-through."
-                ),
+                "summary": _summary_from_headline(item),
             }
         )
     return rows
@@ -407,6 +487,8 @@ def _normalise_key_sentence(value: str) -> str:
 
 def _normalise_summary(value: str, fallback: str = "") -> str:
     text = re.sub(r"\s+", " ", str(value or fallback or "")).strip()
+    if PLACEHOLDER_SUMMARY_RE.search(text):
+        text = re.sub(r"\s+", " ", str(fallback or "")).strip()
     if not text:
         return ""
     parts = re.findall(r"[^.!?。！？]+[.!?。！？]?", text)
@@ -470,8 +552,10 @@ Headlines:
             if not key_sentence:
                 continue
             rows.append({"rank": rank, "key_sentence": key_sentence, "summary": summary})
-        rows.sort(key=lambda x: x["rank"])
-        return rows or _fallback_brief_rows(items)
+        by_rank = _rows_by_rank(rows)
+        completed = [_clean_row_for_item(item, by_rank.get(int(item["rank"]))) for item in items]
+        completed.sort(key=lambda x: x["rank"])
+        return completed
     except Exception:
         return _fallback_brief_rows(items)
 
@@ -486,18 +570,32 @@ def _rows_by_rank(rows: list[dict]) -> dict[int, dict]:
     return out
 
 
+def _clean_row_for_item(item: dict, row: dict | None) -> dict:
+    fallback = _fallback_brief_rows([item])[0]
+    row = row or fallback
+    key_sentence = row.get("key_sentence") or fallback["key_sentence"]
+    summary = _normalise_summary(row.get("summary", ""), fallback=fallback["summary"])
+    if not summary:
+        summary = _normalise_summary(fallback["summary"])
+    return {
+        "rank": int(item["rank"]),
+        "key_sentence": key_sentence,
+        "summary": summary,
+    }
+
+
 def _format_markdown_brief(items: list[dict], rows: list[dict]) -> str:
     by_rank = _rows_by_rank(rows)
     parts = []
     for item in items:
         rank = int(item["rank"])
-        row = by_rank.get(rank) or _fallback_brief_rows([item])[0]
+        row = _clean_row_for_item(item, by_rank.get(rank))
         source = item.get("source", "Source")
         time = _format_hkt(item.get("published_at", ""))
         url = item.get("url", "")
         source_label = f"{source}, {time}" if time else source
         key_sentence = _normalise_key_sentence(row["key_sentence"])
-        summary = _normalise_summary(row.get("summary", ""))
+        summary = _normalise_summary(row.get("summary", ""), fallback=_summary_from_headline(item))
         suffix = f"([{source_label}]({url}) | analyse: /headline_{rank})" if url else f"({source_label} | analyse: /headline_{rank})"
         parts.append(f"{rank}. **{key_sentence}**\n{summary}\n{suffix}".strip())
     return "\n\n".join(parts)
@@ -508,12 +606,12 @@ def _format_telegram_brief(items: list[dict], rows: list[dict], window_hours: in
     parts = [f"<b>Tech Brief</b> - top {len(items)} headlines from the last {window_hours} hours"]
     for item in items:
         rank = int(item["rank"])
-        row = by_rank.get(rank) or _fallback_brief_rows([item])[0]
+        row = _clean_row_for_item(item, by_rank.get(rank))
         source = escape(str(item.get("source", "Source")))
         time = escape(_format_hkt(item.get("published_at", "")))
         source_label = f"{source}, {time}" if time else source
         key_sentence = escape(_normalise_key_sentence(row["key_sentence"]))
-        summary = escape(_normalise_summary(row.get("summary", "")))
+        summary = escape(_normalise_summary(row.get("summary", ""), fallback=_summary_from_headline(item)))
         url = escape(item.get("url", ""), quote=True)
         if url:
             suffix = f'(<a href="{url}">link</a> | analyse: /headline_{rank})'

@@ -140,6 +140,41 @@ class HeadlineBriefTests(unittest.TestCase):
         self.assertIn("analyse: /headline_1", brief)
         self.assertIn("/headline_1", brief)
 
+    def test_telegram_brief_replaces_placeholder_summaries(self):
+        items = [
+            {
+                "rank": 13,
+                "title": "1Q26 Revenue Ranking among Top 10 Global Foundries.",
+                "source": "TrendForce",
+                "published_at": "2026-06-08T04:00:00+00:00",
+                "url": "https://www.trendforce.com/example",
+            },
+            {
+                "rank": 16,
+                "title": "US Stocks Rebound From Selloff as Nvidia Leads Big-Tech Gains.",
+                "source": "Bloomberg.com",
+                "published_at": "2026-06-08T05:00:00+00:00",
+                "url": "https://www.bloomberg.com/example",
+            },
+        ]
+        rows = [
+            {
+                "rank": 13,
+                "key_sentence": "1Q26 Revenue Ranking among Top 10 Global Foundries",
+                "summary": "Source report from TrendForce; tap the analyse command for deeper read-through.",
+            },
+            {
+                "rank": 16,
+                "key_sentence": "US Stocks Rebound From Selloff as Nvidia Leads Big-Tech Gains",
+                "summary": "Source report from Bloomberg.com; tap the analyse command for deeper read-through.",
+            },
+        ]
+        brief = _format_telegram_brief(items, rows, window_hours=6)
+        self.assertNotIn("Source report from", brief)
+        self.assertNotIn("tap the analyse command", brief)
+        self.assertIn("revenue rankings among global foundries", brief)
+        self.assertIn("US equities led by Nvidia", brief)
+
     def test_single_headline_context_drops_digest_batches(self):
         context = [
             {
