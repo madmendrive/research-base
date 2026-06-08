@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from scripts import kb
-from scripts.analyst import _filter_single_headline_context
+from scripts.analyst import _filter_single_headline_context, _is_source_constrained_query
 from scripts.claude_export import import_claude_export
 from scripts.heartbeat import _scheduled_slot_due, _time_due, load_agenda
 from scripts.headlines import _format_telegram_brief
@@ -321,6 +321,13 @@ class LearningMemoryTests(unittest.TestCase):
 
 
 class WebContextTests(unittest.TestCase):
+    def test_analyst_detects_source_constrained_query(self):
+        self.assertTrue(
+            _is_source_constrained_query(
+                "What is the bull case for memory stocks, according to JPM's latest views?"
+            )
+        )
+
     def test_web_context_auto_triggers_for_latest_questions(self):
         self.assertTrue(
             should_use_web(

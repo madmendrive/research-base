@@ -222,7 +222,7 @@ async def _run_blocking(fn, *args, timeout_seconds: float | None = None, **kwarg
 
 
 def _analyst_timeout_seconds() -> float:
-    return float(os.environ.get("BOT_ANALYST_TIMEOUT", os.environ.get("ANALYST_TIMEOUT", "600")))
+    return float(os.environ.get("BOT_ANALYST_TIMEOUT", os.environ.get("ANALYST_TIMEOUT", "180")))
 
 
 async def _log_analyst_interaction(update: Update, question: str, answer: str) -> None:

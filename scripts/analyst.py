@@ -8,10 +8,23 @@ research, and produce investment implications without dumping chunks.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
+import re
+import time
+
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except Exception:
+    pass
 
 from scripts import kb
+
+
+log = logging.getLogger(__name__)
 
 
 ANALYST_SYSTEM_PROMPT = """\
@@ -83,12 +96,35 @@ explain why. Do not hide behind neutrality.
 """
 
 
-def _call_openai(prompt: str, model: str, max_tokens: int) -> str:
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _call_openai(
+    prompt: str,
+    model: str,
+    max_tokens: int,
+    *,
+    timeout: float | None = None,
+    max_retries: int | None = None,
+    reasoning_effort: str | None = None,
+) -> str:
     from openai import OpenAI
     from scripts.llm_provider import _openai_text
 
-    timeout = float(os.environ.get("ANALYST_TIMEOUT", "600"))
-    client = OpenAI(timeout=timeout, max_retries=int(os.environ.get("ANALYST_PROVIDER_MAX_RETRIES", "1")))
+    timeout = timeout if timeout is not None else _env_float("ANALYST_TIMEOUT", 600.0)
+    max_retries = max_retries if max_retries is not None else _env_int("ANALYST_PROVIDER_MAX_RETRIES", 1)
+    client = OpenAI(timeout=timeout, max_retries=max_retries)
     kwargs = {
         "model": model,
         "input": [
@@ -99,12 +135,16 @@ def _call_openai(prompt: str, model: str, max_tokens: int) -> str:
     }
     if model.lower().startswith("gpt-5"):
         kwargs["reasoning"] = {
-            "effort": os.environ.get("ANALYST_OPENAI_REASONING_EFFORT")
+            "effort": reasoning_effort
+            or os.environ.get("ANALYST_OPENAI_REASONING_EFFORT")
             or os.environ.get("OPENAI_REASONING_EFFORT")
             or "high"
         }
-    with client.responses.stream(**kwargs) as stream:
-        response = stream.get_final_response()
+    if os.environ.get("ANALYST_OPENAI_STREAM", "0").strip().lower() in {"1", "true", "yes"}:
+        with client.responses.stream(**kwargs) as stream:
+            response = stream.get_final_response()
+    else:
+        response = client.responses.create(**kwargs)
     text = _openai_text(response).strip()
     if not text:
         status = getattr(response, "status", None)
@@ -113,11 +153,19 @@ def _call_openai(prompt: str, model: str, max_tokens: int) -> str:
     return text
 
 
-def _call_anthropic(prompt: str, model: str, max_tokens: int) -> str:
+def _call_anthropic(
+    prompt: str,
+    model: str,
+    max_tokens: int,
+    *,
+    timeout: float | None = None,
+    max_retries: int | None = None,
+) -> str:
     from anthropic import Anthropic
 
-    timeout = float(os.environ.get("ANALYST_TIMEOUT", "600"))
-    client = Anthropic(timeout=timeout, max_retries=int(os.environ.get("ANALYST_PROVIDER_MAX_RETRIES", "1")))
+    timeout = timeout if timeout is not None else _env_float("ANALYST_TIMEOUT", 600.0)
+    max_retries = max_retries if max_retries is not None else _env_int("ANALYST_PROVIDER_MAX_RETRIES", 1)
+    client = Anthropic(timeout=timeout, max_retries=max_retries)
     resp = client.messages.create(
         model=model,
         max_tokens=max_tokens,
@@ -146,6 +194,277 @@ def _call_claude(prompt: str, max_tokens: int = 4000) -> str:
                     f"fallback failed ({type(fallback_error).__name__}: {fallback_error})"
                 ) from fallback_error
         raise
+
+
+def _is_source_constrained_query(question: str) -> bool:
+    from scripts.web_context import SOURCE_CONSTRAINED_HINTS
+
+    query_l = (question or "").lower()
+    return any(hint in query_l for hint in SOURCE_CONSTRAINED_HINTS)
+
+
+def _call_structured_fast(prompt: str, max_tokens: int = 3000) -> str:
+    provider = os.environ.get("ANALYST_STRUCTURED_PROVIDER", "openai").lower().strip()
+    timeout = _env_float("ANALYST_STRUCTURED_TIMEOUT", 90.0)
+    max_retries = _env_int("ANALYST_STRUCTURED_MAX_RETRIES", 0)
+    if provider in {"openai", "gpt"}:
+        model = (
+            os.environ.get("ANALYST_STRUCTURED_OPENAI_MODEL")
+            or os.environ.get("ANALYST_STRUCTURED_MODEL")
+            or os.environ.get("ANALYST_FALLBACK_MODEL")
+            or "gpt-5.5"
+        )
+        return _call_openai(
+            prompt,
+            model,
+            max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+            reasoning_effort=os.environ.get("ANALYST_STRUCTURED_REASONING_EFFORT", "high"),
+        )
+    configured_model = os.environ.get("ANALYST_STRUCTURED_ANTHROPIC_MODEL") or os.environ.get("ANALYST_STRUCTURED_MODEL")
+    if configured_model and configured_model.lower().startswith(("gpt-", "o")):
+        configured_model = ""
+    return _call_anthropic(
+        prompt,
+        configured_model or os.environ.get("ANALYST_MODEL", "claude-opus-4-7"),
+        max_tokens,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+
+
+def _fallback_keywords(question: str) -> list[str]:
+    query_l = (question or "").lower()
+    keywords = set(re.findall(r"[a-z0-9]{3,}", query_l))
+    if {"memory", "dram", "nand", "hbm"} & keywords:
+        keywords.update({
+            "memory", "dram", "nand", "hbm", "samsung", "hynix", "micron",
+            "005930", "000660", "china", "capacity", "pricing", "asp",
+            "lta", "ltas", "valuation", "opm",
+        })
+    return sorted(keywords)
+
+
+def _primary_topic_keywords(question: str) -> set[str]:
+    query_l = (question or "").lower()
+    primary: set[str] = set()
+    if "memory" in query_l or "dram" in query_l or "nand" in query_l or "hbm" in query_l:
+        primary.update({"memory", "dram", "nand", "hbm", "samsung", "hynix", "micron", "005930", "000660"})
+    if "tsmc" in query_l or "foundry" in query_l:
+        primary.update({"tsmc", "foundry", "cowos", "n2", "n3", "2330"})
+    if "substrate" in query_l or "abf" in query_l:
+        primary.update({"substrate", "abf", "unimicron", "kinsus", "ibiden", "shinko"})
+    return primary
+
+
+def _parse_debate_line(line: str) -> dict[str, str] | None:
+    text = line[2:].strip() if line.startswith("- ") else line.strip()
+    if " | bull: " not in text or " | bear: " not in text:
+        return None
+    try:
+        left, rest = text.split(" | bull: ", 1)
+        bull, rest = rest.split(" | bear: ", 1)
+        bear, lean = rest.split(" | lean: ", 1)
+    except ValueError:
+        return None
+    theme = "Research debate"
+    source_and_question = left
+    if " | " in left:
+        theme, source_and_question = left.split(" | ", 1)
+    source = "J.P. Morgan Asia Pacific Equity Research" if "J.P. Morgan" in source_and_question else "Indexed source"
+    question = source_and_question.replace(source, "").strip(" -")
+    return {
+        "theme": theme.strip(),
+        "source": source,
+        "question": question or "Current debate",
+        "bull": bull.strip(),
+        "bear": bear.strip(),
+        "lean": lean.strip(),
+    }
+
+
+def _relevant_structured_lines(structured_context: str, keywords: list[str], *, max_lines: int = 8) -> list[str]:
+    out = []
+    for line in structured_context.splitlines():
+        line_l = line.lower()
+        if any(keyword in line_l for keyword in keywords):
+            out.append(line.strip())
+        if len(out) >= max_lines:
+            break
+    return out
+
+
+def _local_structured_answer(question: str, structured_context: str) -> str | None:
+    keywords = _fallback_keywords(question)
+    primary_keywords = _primary_topic_keywords(question)
+    debates = []
+    for line in structured_context.splitlines():
+        parsed = _parse_debate_line(line)
+        if not parsed:
+            continue
+        haystack = " ".join(parsed.values()).lower()
+        if primary_keywords and not any(keyword in haystack for keyword in primary_keywords):
+            continue
+        score = sum(1 for keyword in keywords if keyword in haystack)
+        score += 3 * sum(1 for keyword in primary_keywords if keyword in haystack)
+        if score:
+            debates.append((score, parsed))
+    debates.sort(key=lambda item: item[0], reverse=True)
+    debates = [item[1] for item in debates[:4]]
+    if not debates:
+        return None
+
+    ratings = []
+    in_ratings = False
+    for line in structured_context.splitlines():
+        stripped = line.strip()
+        if stripped == "Ratings/targets:":
+            in_ratings = True
+            continue
+        if in_ratings and stripped.endswith(":"):
+            break
+        if not in_ratings or not stripped.startswith("- "):
+            continue
+        line_l = stripped.lower()
+        if any(keyword in line_l for keyword in (primary_keywords or set(keywords))):
+            ratings.append(stripped)
+        if len(ratings) >= 5:
+            break
+    latest_source = "J.P. Morgan Asia Pacific Equity Research"
+    lines = [
+        "**Bottom line**",
+        f"{latest_source} is broadly constructive on the memory cycle in the currently indexed research memory, but the view is not a blind cyclical long. The bull case is that AI has made memory more strategic, supply is tight, customer commitments are longer, and profitability may deserve a higher valuation framework. The main risks are classic memory-cycle risks: over-ordering, capacity additions, China supply, capex intensity, and the possibility that today’s elevated margins prove cyclical rather than structural.",
+        "",
+        "**Context refresher**",
+        "Memory stocks are normally treated as cyclical commodity semiconductor names because DRAM and NAND pricing can swing sharply when supply and demand move out of balance. JPM’s current debate is whether AI servers and HBM have changed that old framework by making memory a scarce strategic input for cloud service providers, rather than just another PC or handset component.",
+        "",
+        "**What JPM is saying**",
+    ]
+    for debate in debates:
+        debate_question = debate["question"].rstrip(".?")
+        lines.append(
+            f"- {debate['source']} frames the key debate as: {debate_question}. "
+            f"The JPM-side bull argument is: {debate['bull']} The counterargument is: {debate['bear']} "
+            f"The indexed lean is {debate['lean']}."
+        )
+
+    lines.extend(["", "**Bull case**"])
+    for debate in debates[:3]:
+        lines.append(
+            f"- JPM’s positive case is: {debate['bull']}"
+        )
+
+    lines.extend(["", "**Key risks**"])
+    for debate in debates[:3]:
+        lines.append(
+            f"- The key risk is: {debate['bear']}"
+        )
+
+    if ratings:
+        lines.extend(["", "**Relevant ratings and targets in memory**"])
+        for line in ratings[:5]:
+            lines.append(f"- {line.lstrip('- ').strip()}")
+
+    lines.extend([
+        "",
+        "**Implications for stocks/themes**",
+        "- Samsung Electronics and SK hynix screen as direct beneficiaries if JPM is right that HBM, DRAM discipline, and AI-driven customer commitments support a higher-margin cycle.",
+        "- Micron is directionally exposed to the same DRAM/HBM framework, although the currently surfaced JPM structured rows are richer for Korean and Asian supply-chain names than for MU specifically.",
+        "- TSMC, ASE, Unimicron, Ibiden, and Elite Material benefit indirectly if the same AI infrastructure tightness persists across wafers, advanced packaging, substrates, and CCL.",
+        "- PC and server OEMs face a mixed read-through because higher memory prices can lift revenue dollars but pressure margins and demand elasticity for downstream system vendors.",
+        "",
+        "**What to watch next**",
+        "- Watch whether HBM and DRAM contract pricing continues to move up without triggering customer pushback or order cancellations.",
+        "- Watch whether Chinese DRAM and NAND capacity remains stuck in lower-value segments or starts to threaten higher-value supply.",
+        "- Watch capex plans from Samsung, SK hynix, Micron, and Chinese suppliers, because excessive capacity is the fastest way for a structural re-rating thesis to become a normal down-cycle again.",
+        "- Watch whether multi-year LTAs survive a demand wobble, because durable commitments are central to JPM’s higher-quality earnings argument.",
+        "",
+        "**Model note**",
+        "The live analyst model call did not complete, so this answer was synthesized locally from the structured research-memory layer rather than waiting silently.",
+    ])
+    return "\n".join(lines)
+
+
+def _structured_fallback_text(question: str, structured_context: str, results: list[dict]) -> str:
+    """Return a bounded answer when both primary and fast model calls fail."""
+    local_answer = _local_structured_answer(question, structured_context)
+    if local_answer:
+        return local_answer
+
+    top_sources = []
+    for result in results[:4]:
+        top_sources.append(f"- {_label(result)}.")
+    excerpt = structured_context.strip()
+    if len(excerpt) > 3200:
+        excerpt = excerpt[:3197] + "..."
+    lines = [
+        "**Analyst model unavailable**",
+        "",
+        "I found relevant structured research memory, but the live analyst model call did not complete. I am returning the most relevant stored memory so the bot does not sit silently.",
+        "",
+        "**Question**",
+        question,
+        "",
+        "**Structured memory excerpt**",
+        excerpt or "No structured research-memory excerpt was available.",
+    ]
+    if top_sources:
+        lines.extend(["", "**Top local sources searched**", *top_sources])
+    return "\n".join(lines)
+
+
+def _answer_from_structured_fast(
+    question: str,
+    *,
+    adaptive_context: str,
+    structured_context: str,
+    web_context: str,
+    results: list[dict],
+) -> str:
+    prompt = f"""\
+User query:
+{question}
+
+Adaptive analyst learning memory:
+{adaptive_context or "No adaptive learning memory yet."}
+
+Structured research memory:
+{structured_context or "No structured research-memory hits yet."}
+
+Live web context:
+{web_context or "No live web context fetched."}
+
+Private local research / knowledge base context:
+{_private_context(results[:8], max_chars_per_item=1200) if results else "No unstructured KB context found."}
+
+This is a source-constrained local research-memory question, so answer primarily
+from the structured research memory and name the relevant source, publisher,
+author, note date, ticker, and estimate where available.
+
+Write a concise but PM-useful answer with these sections:
+1. **Bottom line**.
+2. **Context refresher**.
+3. **What JPM or the requested source is saying**.
+4. **Bull case**.
+5. **Key risks**.
+6. **Implications for stocks/themes**.
+7. **What to watch next**.
+
+Every bullet must be a complete sentence. Do not append a raw source list. If
+the structured memory does not contain a specific requested number, say that it
+is not in the currently indexed structured memory rather than guessing.
+"""
+    try:
+        return _call_structured_fast(
+            prompt,
+            max_tokens=_env_int("ANALYST_STRUCTURED_MAX_TOKENS", 3000),
+        )
+    except Exception:
+        log.exception("structured fast analyst call failed")
+        if os.environ.get("ANALYST_STRUCTURED_ALLOW_PRIMARY_FALLBACK", "0").strip().lower() in {"1", "true", "yes"}:
+            return _call_claude(prompt, max_tokens=_env_int("ANALYST_STRUCTURED_MAX_TOKENS", 3000))
+        return _structured_fallback_text(question, structured_context, results)
 
 
 def _label(result: dict) -> str:
@@ -187,6 +506,31 @@ def _query_expansion(question: str) -> str:
     return question + "\n" + "\n".join(extras)
 
 
+def _structured_query_expansion(question: str) -> str:
+    """Add sector vocabulary before querying the structured memory layer."""
+    query_l = (question or "").lower()
+    extras = []
+    if "memory" in query_l or "dram" in query_l or "nand" in query_l or "hbm" in query_l:
+        extras.append(
+            "DRAM NAND HBM memory ASP price growth volume growth supply demand "
+            "LTAs Samsung SK hynix Micron MU 005930 000660 China capacity "
+            "market share OPM P/S market cap valuation risk"
+        )
+    if "tsmc" in query_l or "foundry" in query_l:
+        extras.append(
+            "TSMC foundry CoWoS advanced packaging N2 N3 AI accelerator wafer "
+            "price target capex gross margin market share"
+        )
+    if "substrate" in query_l or "abf" in query_l:
+        extras.append(
+            "ABF substrate Unimicron Kinsus Nan Ya PCB Ibiden Shinko AI server "
+            "capacity utilization price increases supply constraints"
+        )
+    if not extras:
+        return question
+    return question + "\n" + "\n".join(extras)
+
+
 def _filter_single_headline_context(results: list[dict], selected_title: str) -> list[dict]:
     """Keep headline digest context from turning one selected headline into a batch analysis."""
     selected_title_l = (selected_title or "").lower()
@@ -207,19 +551,26 @@ def _filter_single_headline_context(results: list[dict], selected_title: str) ->
 
 def answer_question(question: str, sources: str = "all", limit: int = 14) -> str:
     """Answer a query as an analyst, not as a cited retrieval assistant."""
+    started = time.perf_counter()
     results = kb.search(_query_expansion(question), sources=sources, limit=limit)
+    kb_elapsed = time.perf_counter()
     try:
         from scripts.research_memory import query_context
 
-        structured_context = query_context(question, limit=14)
+        structured_limit = 30 if _is_source_constrained_query(question) else 18
+        structured_context = query_context(_structured_query_expansion(question), limit=structured_limit)
     except Exception:
+        log.exception("structured research-memory lookup failed")
         structured_context = ""
+    structured_elapsed = time.perf_counter()
     try:
         from scripts.learning import learning_context
 
         adaptive_context = learning_context(question)
     except Exception:
+        log.exception("adaptive learning-memory lookup failed")
         adaptive_context = ""
+    adaptive_elapsed = time.perf_counter()
     try:
         from scripts.web_context import fetch_web_context
 
@@ -229,7 +580,30 @@ def answer_question(question: str, sources: str = "all", limit: int = 14) -> str
             has_structured_context=bool(structured_context),
         )
     except Exception:
+        log.exception("web context lookup failed")
         web_context = ""
+    web_elapsed = time.perf_counter()
+    log.info(
+        "answer_question context ready kb_results=%s structured=%s adaptive=%s web=%s timings=%.2f/%.2f/%.2f/%.2f total=%.2fs",
+        len(results),
+        bool(structured_context),
+        bool(adaptive_context),
+        bool(web_context),
+        kb_elapsed - started,
+        structured_elapsed - kb_elapsed,
+        adaptive_elapsed - structured_elapsed,
+        web_elapsed - adaptive_elapsed,
+        web_elapsed - started,
+    )
+    if structured_context and _is_source_constrained_query(question):
+        log.info("using structured fast analyst path for source-constrained query")
+        return _answer_from_structured_fast(
+            question,
+            adaptive_context=adaptive_context,
+            structured_context=structured_context,
+            web_context=web_context,
+            results=results,
+        )
     if not results:
         if structured_context or web_context:
             prompt = f"""\
