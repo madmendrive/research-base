@@ -26,6 +26,19 @@ mechanical citations. If a source matters, name it naturally in prose, e.g.
 "the PhotonCap note", "SemiAnalysis", "latest company earnings", or "your
 own note".
 
+Attribution discipline:
+- When you use a claim from the local KB, attribute it to the specific
+  source, author, publisher, company material, or user note whenever that
+  provenance is available.
+- Do not write vague phrases such as "the KB says" when the context identifies
+  the actual speaker. Prefer "JPM estimates...", "SemiAnalysis argues...",
+  "the company guide implies...", or "your note assumed...".
+- When local KB context and live web context conflict, name both sources and
+  explain the date/source-quality difference.
+- Treat live web context as current external evidence, not as stored memory.
+  Use it for freshness, prices, latest filings/news, and cross-checks, while
+  preserving the KB as the user's private research base.
+
 Style:
 - Direct, opinionated, PM-facing.
 - Specific about mechanisms, numbers, tickers, timeframes, and risk.
@@ -138,7 +151,12 @@ def _call_claude(prompt: str, max_tokens: int = 4000) -> str:
 def _label(result: dict) -> str:
     path = result.get("source_path") or result.get("url") or ""
     title = result.get("title") or (Path(path).name if path else "untitled")
-    return f"{result.get('source_type', 'source')}: {title}"
+    metadata = result.get("metadata") or {}
+    publisher = metadata.get("publisher") or metadata.get("source") or metadata.get("firm")
+    author = metadata.get("author")
+    speaker = " / ".join(str(x) for x in (publisher, author) if x)
+    prefix = f"{result.get('source_type', 'source')}: "
+    return f"{prefix}{speaker} - {title}" if speaker else f"{prefix}{title}"
 
 
 def _private_context(results: list[dict], max_chars_per_item: int = 1800) -> str:
@@ -152,6 +170,7 @@ def _private_context(results: list[dict], max_chars_per_item: int = 1800) -> str
         )
         blocks.append(
             f"<research_memory index='{i}' source='{_label(result)}' entities='{entity_text}'>\n"
+            f"Provenance: {_label(result)}\n"
             f"{(result.get('text') or '')[:max_chars_per_item]}\n"
             f"</research_memory>"
         )
@@ -201,8 +220,18 @@ def answer_question(question: str, sources: str = "all", limit: int = 14) -> str
         adaptive_context = learning_context(question)
     except Exception:
         adaptive_context = ""
+    try:
+        from scripts.web_context import fetch_web_context
+
+        web_context = fetch_web_context(
+            question,
+            kb_result_count=len(results),
+            has_structured_context=bool(structured_context),
+        )
+    except Exception:
+        web_context = ""
     if not results:
-        if structured_context:
+        if structured_context or web_context:
             prompt = f"""\
 User query:
 {question}
@@ -211,11 +240,16 @@ Adaptive analyst learning memory:
 {adaptive_context or "No adaptive learning memory yet."}
 
 Structured research memory:
-{structured_context}
+{structured_context or "No structured research-memory hits yet."}
+
+Live web context:
+{web_context or "No live web context fetched."}
 
 Produce the answer as the analyst described in the system instructions. The user
 cares about investment judgment, deltas versus existing beliefs, and implications
-for stocks/themes. Do not append a raw source list.
+for stocks/themes. Attribute KB claims to the specific source/author when known.
+Attribute current web claims to their web source when used. Do not append a raw
+source list.
 """
             return _call_claude(prompt)
         return (
@@ -235,13 +269,17 @@ Adaptive analyst learning memory:
 Structured research memory:
 {structured_context or "No structured research-memory hits yet."}
 
+Live web context:
+{web_context or "No live web context fetched."}
+
 Private local research / knowledge base context:
 {_private_context(results)}
 
 Produce the answer as the analyst described in the system instructions. The user
 cares about investment judgment, deltas versus existing beliefs, and implications
-for stocks/themes. Do not append a raw source list. Do not say you are using
-"chunks" or "retrieval".
+for stocks/themes. Attribute KB claims to the specific source/author when known.
+Attribute current web claims to their web source when used. Do not append a raw
+source list. Do not say you are using "chunks" or "retrieval".
 """
     try:
         return _call_claude(prompt)

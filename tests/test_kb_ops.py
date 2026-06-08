@@ -12,6 +12,7 @@ from scripts.headlines import _format_telegram_brief
 from scripts.learning import add_lesson, init_schema as init_learning_schema, learning_context, log_interaction, record_feedback
 from scripts.parallel_ingest import _destination_for, _normalize_triage
 from scripts.research_memory import _num, init_schema as init_research_memory_schema
+from scripts.web_context import should_use_web
 
 
 class KBTests(unittest.TestCase):
@@ -256,6 +257,26 @@ class LearningMemoryTests(unittest.TestCase):
         self.assertIn("best alternative expression", context)
         self.assertIn("explicit author trades", context)
         conn.close()
+
+
+class WebContextTests(unittest.TestCase):
+    def test_web_context_auto_triggers_for_latest_questions(self):
+        self.assertTrue(
+            should_use_web(
+                "What are JPM's latest DRAM ASP growth estimates for 2026 and 2027?",
+                kb_result_count=5,
+                has_structured_context=True,
+            )
+        )
+
+    def test_web_context_auto_skips_static_kb_questions(self):
+        self.assertFalse(
+            should_use_web(
+                "Compare SemiAnalysis and my notes on TSMC CoWoS bottlenecks.",
+                kb_result_count=5,
+                has_structured_context=True,
+            )
+        )
 
 
 class FastIngestTests(unittest.TestCase):
