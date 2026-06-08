@@ -210,6 +210,23 @@ async def _run_blocking(fn, *args, **kwargs):
     return await loop.run_in_executor(None, fn, *args)
 
 
+async def _log_analyst_interaction(update: Update, question: str, answer: str) -> None:
+    """Best-effort learning trace for follow-up feedback."""
+    try:
+        from scripts.learning import log_interaction
+
+        user_id = update.effective_user.id if update.effective_user else None
+        await _run_blocking(
+            log_interaction,
+            question,
+            answer,
+            channel="telegram",
+            user_id=user_id,
+        )
+    except Exception:
+        log.exception("could not log analyst interaction")
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -231,6 +248,10 @@ HELP_TEXT = (
     "Research memory:\n"
     "/memory SUBJECT   - structured views/estimates snapshot\n"
     "/mapstatus        - structured memory coverage\n\n"
+    "Learning:\n"
+    "/teach LESSON     - save a durable analyst rule or preference\n"
+    "/feedback TEXT    - critique the latest answer so future answers improve\n"
+    "/lessons          - show active analyst lessons\n\n"
     "/status - show pending override\n"
     "/cancel - clear pending override\n"
 )
@@ -319,6 +340,7 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.chat.send_action(ChatAction.TYPING)
     answer = await _run_blocking(answer_question, question)
+    await _log_analyst_interaction(update, question, answer)
     await _send_long_html(update, answer)
 
 
@@ -433,6 +455,44 @@ async def cmd_mapstatus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"PDFs missing extraction JSON: {stats['pdfs_missing_extraction_json']}"
     )
     await update.message.reply_text(text)
+
+
+async def cmd_teach(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    lesson = " ".join(context.args).strip()
+    if not lesson:
+        await update.message.reply_text("Usage: /teach LESSON")
+        return
+    from scripts.learning import add_lesson
+
+    lesson_id = await _run_blocking(add_lesson, lesson, source="telegram")
+    await update.message.reply_text(f"Saved analyst lesson #{lesson_id}.")
+
+
+async def cmd_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    feedback = " ".join(context.args).strip()
+    if not feedback:
+        await update.message.reply_text("Usage: /feedback TEXT")
+        return
+    from scripts.learning import record_feedback
+
+    user_id = update.effective_user.id if update.effective_user else None
+    feedback_id = await _run_blocking(record_feedback, feedback, user_id=user_id)
+    await update.message.reply_text(
+        f"Saved feedback #{feedback_id}. I will apply it to future analyst answers."
+    )
+
+
+async def cmd_lessons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    from scripts.learning import format_lessons
+
+    text = await _run_blocking(format_lessons, 30)
+    await _send_long(update, text)
 
 
 async def handle_pending_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -708,6 +768,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await update.message.chat.send_action(ChatAction.TYPING)
     answer = await _run_blocking(answer_question, text)
+    await _log_analyst_interaction(update, text, answer)
     await _send_long_html(update, answer)
 
 
@@ -750,6 +811,9 @@ def main() -> None:
     app.add_handler(CommandHandler("pending", cmd_pending))
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(CommandHandler("mapstatus", cmd_mapstatus))
+    app.add_handler(CommandHandler("teach", cmd_teach))
+    app.add_handler(CommandHandler("feedback", cmd_feedback))
+    app.add_handler(CommandHandler("lessons", cmd_lessons))
     app.add_handler(CallbackQueryHandler(handle_pending_action, pattern=r"^p[crd]:"))
     app.add_handler(CallbackQueryHandler(handle_headline_action, pattern=r"^ha:"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

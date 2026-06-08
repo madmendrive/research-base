@@ -9,6 +9,7 @@ from scripts.analyst import _filter_single_headline_context
 from scripts.claude_export import import_claude_export
 from scripts.heartbeat import _scheduled_slot_due, _time_due, load_agenda
 from scripts.headlines import _format_telegram_brief
+from scripts.learning import add_lesson, init_schema as init_learning_schema, learning_context, log_interaction, record_feedback
 from scripts.parallel_ingest import _destination_for, _normalize_triage
 from scripts.research_memory import _num, init_schema as init_research_memory_schema
 
@@ -178,6 +179,48 @@ class ResearchMemoryTests(unittest.TestCase):
         self.assertEqual(_num("1,234.5%"), 1234.5)
         self.assertEqual(_num(">$1,000"), 1000.0)
         self.assertIsNone(_num("3x YoY increase"))
+
+
+class LearningMemoryTests(unittest.TestCase):
+    def test_learning_schema_initializes(self):
+        conn = sqlite3.connect(":memory:")
+        init_learning_schema(conn)
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'analyst_%'"
+            )
+        }
+        self.assertIn("analyst_lessons", tables)
+        self.assertIn("analyst_interactions", tables)
+        self.assertIn("analyst_feedback", tables)
+        conn.close()
+
+    def test_learning_context_includes_lessons_and_feedback(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        add_lesson(
+            "Always compare new substrate ideas against the best alternative expression.",
+            tags=["process"],
+            conn=conn,
+        )
+        interaction_id = log_interaction(
+            "Should I buy 3037 TT?",
+            "Use full sentences and compare alternatives.",
+            user_id=123,
+            conn=conn,
+        )
+        feedback_id = record_feedback(
+            "You should distinguish explicit author trades from your own inferred trades.",
+            user_id=123,
+            conn=conn,
+        )
+        self.assertEqual(interaction_id, 1)
+        self.assertEqual(feedback_id, 1)
+        context = learning_context("3037 TT substrate alternative", conn=conn)
+        self.assertIn("best alternative expression", context)
+        self.assertIn("explicit author trades", context)
+        conn.close()
 
 
 class FastIngestTests(unittest.TestCase):

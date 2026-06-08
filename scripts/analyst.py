@@ -195,11 +195,20 @@ def answer_question(question: str, sources: str = "all", limit: int = 14) -> str
         structured_context = query_context(question, limit=14)
     except Exception:
         structured_context = ""
+    try:
+        from scripts.learning import learning_context
+
+        adaptive_context = learning_context(question)
+    except Exception:
+        adaptive_context = ""
     if not results:
         if structured_context:
             prompt = f"""\
 User query:
 {question}
+
+Adaptive analyst learning memory:
+{adaptive_context or "No adaptive learning memory yet."}
 
 Structured research memory:
 {structured_context}
@@ -219,6 +228,9 @@ for stocks/themes. Do not append a raw source list.
     prompt = f"""\
 User query:
 {question}
+
+Adaptive analyst learning memory:
+{adaptive_context or "No adaptive learning memory yet."}
 
 Structured research memory:
 {structured_context or "No structured research-memory hits yet."}
