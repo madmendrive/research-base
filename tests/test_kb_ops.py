@@ -7,7 +7,7 @@ from pathlib import Path
 from scripts import kb
 from scripts.analyst import _filter_single_headline_context
 from scripts.claude_export import import_claude_export
-from scripts.heartbeat import _time_due, load_agenda
+from scripts.heartbeat import _scheduled_slot_due, _time_due, load_agenda
 from scripts.headlines import _format_telegram_brief
 from scripts.parallel_ingest import _destination_for, _normalize_triage
 from scripts.research_memory import _num, init_schema as init_research_memory_schema
@@ -95,6 +95,21 @@ notify: true
             catch_up=False,
         )
         self.assertFalse(due)
+
+    def test_headline_schedule_exposes_slot_for_dedupe_key(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        state = {"headline:2026-06-08:14:00": "2026-06-08T14:00:56+08:00"}
+        now = datetime(2026, 6, 8, 20, 0, 57, tzinfo=ZoneInfo("Asia/Hong_Kong"))
+        due = _scheduled_slot_due(
+            now,
+            ["02:00", "08:00", "14:00", "20:00"],
+            state,
+            "headline",
+            catch_up=False,
+        )
+        self.assertEqual(due, ("20:00", "headline:2026-06-08:20:00"))
 
 
 class HeadlineBriefTests(unittest.TestCase):

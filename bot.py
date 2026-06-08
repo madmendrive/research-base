@@ -99,6 +99,70 @@ def _load_companies() -> dict:
         return json.load(f)
 
 
+def _tech_brief_status_text() -> str:
+    from scripts import kb
+    from scripts.headlines import LATEST_DIGEST_PATH
+
+    lines = ["**Tech Brief status**"]
+    if LATEST_DIGEST_PATH.exists():
+        try:
+            latest = json.loads(LATEST_DIGEST_PATH.read_text(encoding="utf-8"))
+            generated_at = latest.get("generated_at") or "unknown"
+            items = latest.get("items") or []
+            lines.append(f"- The latest saved Tech Brief was generated at {generated_at}.")
+            lines.append(f"- The latest digest contains {len(items)} headline item(s).")
+        except Exception as e:
+            lines.append(f"- I found the latest digest file, but could not read it: {type(e).__name__}: {e}.")
+    else:
+        lines.append("- I do not see a saved Tech Brief digest yet.")
+
+    conn = kb.connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, status, attempts, created_at, started_at, finished_at, last_error, payload_json
+            FROM jobs
+            WHERE kind = 'headline_sweep'
+            ORDER BY id DESC
+            LIMIT 5
+            """
+        ).fetchall()
+        if rows:
+            lines.append("")
+            lines.append("**Recent headline sweep jobs**")
+            for row in rows:
+                payload = json.loads(row["payload_json"] or "{}")
+                detail = (
+                    f"- Job #{row['id']} is {row['status']}."
+                    f" It was created at {row['created_at']}"
+                    f" and finished at {row['finished_at'] or 'not finished'}."
+                )
+                if payload.get("window_hours"):
+                    detail += f" The lookback window was {payload.get('window_hours')} hour(s)."
+                if row["last_error"]:
+                    detail += f" Last error: {row['last_error']}."
+                lines.append(detail)
+        else:
+            lines.append("")
+            lines.append("- I do not see any headline sweep jobs in the queue history.")
+    finally:
+        conn.close()
+
+    state_path = PROJECT_ROOT / "data" / "_kb" / "heartbeat_state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            headline_slots = sorted(k for k in state if k.startswith("headline:"))
+            if headline_slots:
+                lines.append("")
+                lines.append("**Scheduler headline slots**")
+                for key in headline_slots[-6:]:
+                    lines.append(f"- {key} was marked at {state[key]}.")
+        except Exception:
+            pass
+    return "\n".join(lines)
+
+
 def _chunk(text: str, size: int = 3800) -> list[str]:
     """Split text on paragraph boundaries to fit Telegram's 4096-char message limit."""
     if len(text) <= size:
@@ -632,6 +696,20 @@ async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text("Unknown command. /help for the list.")
 
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_allowed(update):
+        return await _deny(update)
+    text = (update.message.text or "").strip()
+    lower = text.lower()
+    if "tech brief" in lower or "headline" in lower:
+        await _send_long_html(update, _tech_brief_status_text())
+        return
+    await update.message.reply_text(
+        "I received that, but plain text chat is only wired for ops questions right now. "
+        "Use /ask QUESTION for analyst synthesis, or upload a PDF for ingestion and analysis."
+    )
+
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Last-resort handler — log and tell the user something broke."""
     log.exception("Unhandled exception in handler", exc_info=context.error)
@@ -675,6 +753,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(handle_headline_action, pattern=r"^ha:"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.COMMAND, handle_unknown))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_error_handler(on_error)
 
     log.info("bot starting; allowed user IDs: %s", sorted(ALLOWED))

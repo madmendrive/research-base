@@ -101,6 +101,22 @@ def _time_due(
     catch_up: bool = True,
     grace_minutes: int = 10,
 ) -> bool:
+    due = _scheduled_slot_due(now, times, state, key, catch_up=catch_up, grace_minutes=grace_minutes)
+    if not due:
+        return False
+    _scheduled, run_key = due
+    state[run_key] = now.isoformat(timespec="seconds")
+    return True
+
+
+def _scheduled_slot_due(
+    now: datetime,
+    times: list[str],
+    state: dict,
+    key: str,
+    catch_up: bool = True,
+    grace_minutes: int = 10,
+) -> tuple[str, str] | None:
     today = now.strftime("%Y-%m-%d")
     current = now.strftime("%H:%M")
     for scheduled in sorted(str(t) for t in times):
@@ -109,8 +125,7 @@ def _time_due(
             continue
         if catch_up:
             if current >= scheduled:
-                state[run_key] = now.isoformat(timespec="seconds")
-                return True
+                return scheduled, run_key
             continue
         try:
             scheduled_dt = datetime.strptime(f"{today} {scheduled}", "%Y-%m-%d %H:%M")
@@ -119,9 +134,8 @@ def _time_due(
             continue
         seconds_after = (now - scheduled_dt).total_seconds()
         if 0 <= seconds_after <= grace_minutes * 60:
-            state[run_key] = now.isoformat(timespec="seconds")
-            return True
-    return False
+            return scheduled, run_key
+    return None
 
 
 def _interval_due(now: datetime, hours: int, state: dict, key: str) -> bool:
@@ -149,7 +163,9 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
         notify = bool(agenda.get("notify", True))
 
         folder_times = agenda.get("folder_sweep_times") or []
-        if _time_due(now, list(folder_times), state, "folder", catch_up=False):
+        folder_due = _scheduled_slot_due(now, list(folder_times), state, "folder", catch_up=False)
+        if folder_due:
+            scheduled, run_key = folder_due
             enqueue_job(
                 "folder_scan",
                 {
@@ -157,31 +173,42 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                     "notify": notify,
                     "analyse": bool(agenda.get("folder_analyse", False)),
                 },
+                dedupe_key=f"folder_scan:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )
+            state[run_key] = now.isoformat(timespec="seconds")
 
         email_times = agenda.get("email_sweep_times") or []
-        if _time_due(now, list(email_times), state, "email", catch_up=False):
+        email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=False)
+        if email_due:
+            scheduled, run_key = email_due
             enqueue_job(
                 "email_sweep",
                 {
                     "notify": notify,
                     "analyse_attachments": bool(agenda.get("email_analyse_attachments", False)),
                 },
+                dedupe_key=f"email_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )
+            state[run_key] = now.isoformat(timespec="seconds")
 
         headline_times = agenda.get("headline_sweep_times") or []
         if headline_times:
-            if _time_due(now, list(headline_times), state, "headline", catch_up=False):
+            headline_due = _scheduled_slot_due(now, list(headline_times), state, "headline", catch_up=False)
+            if headline_due:
+                scheduled, run_key = headline_due
                 enqueue_job(
                     "headline_sweep",
                     {"notify": notify, "window_hours": 6, "max_digest_items": 20},
+                    dedupe_key=f"headline_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
                 )
+                state[run_key] = now.isoformat(timespec="seconds")
         else:
             interval = int(agenda.get("headline_interval_hours") or 6)
             if _interval_due(now, interval, state, "headline:last_run"):
                 enqueue_job(
                     "headline_sweep",
                     {"notify": notify, "window_hours": interval, "max_digest_items": 20},
+                    dedupe_key=f"headline_sweep:interval:{now.isoformat(timespec='minutes')}",
                 )
 
         _save_state(state)
