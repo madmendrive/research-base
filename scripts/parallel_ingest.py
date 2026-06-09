@@ -20,6 +20,11 @@ from typing import Any
 from scripts import kb
 from scripts.classifier import extract_text
 from scripts.llm_provider import complete_json, env_config, missing_credentials
+from scripts.tickers import (
+    canonicalize_ticker,
+    canonicalize_ticker_list,
+    canonicalize_ticker_materiality,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -131,6 +136,10 @@ def _normalize_triage(result: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
     result.setdefault("proposed_new_themes", [])
     result.setdefault("rationale", "")
     result.setdefault("confidence", "low")
+    result["tickers_covered"] = canonicalize_ticker_list(result.get("tickers_covered") or [])
+    result["materiality"]["tickers"] = canonicalize_ticker_materiality(result["materiality"].get("tickers") or {})
+    if result.get("primary_type") == "single_name":
+        result["primary_subject"] = canonicalize_ticker(result.get("primary_subject")) or result.get("primary_subject")
     return result
 
 
@@ -242,6 +251,13 @@ def stage_one(pdf_path: str | Path, force: bool = False) -> dict[str, Any]:
     stage_path = _stage_path(digest)
     if stage_path.exists() and not force:
         data = json.loads(stage_path.read_text(encoding="utf-8", errors="replace"))
+        if data.get("source_path") != str(pdf_path):
+            data["source_path"] = str(pdf_path)
+            data["file"] = pdf_path.name
+            data["size"] = pdf_path.stat().st_size
+            tmp = stage_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            tmp.replace(stage_path)
         return {"status": "already_staged", "digest": digest, "file": pdf_path.name, "stage_path": str(stage_path), **data.get("summary", {})}
 
     t0 = time.time()
@@ -286,6 +302,8 @@ def _auto_add_authors(triage: dict[str, Any]) -> None:
 def _destination_for(triage: dict[str, Any], source: Path) -> tuple[Path, str]:
     primary_type = triage.get("primary_type")
     subject = triage.get("primary_subject") or "News Article"
+    if primary_type == "single_name":
+        subject = canonicalize_ticker(subject) or subject
     category = triage.get("category") or "Macro"
     dest_name = f"{_today_prefix()}_{source.name}"
 

@@ -13,6 +13,7 @@ from anthropic import Anthropic
 
 from scripts.classifier import extract_text
 from scripts.research import _call_api, _parse_json_response
+from scripts.tickers import canonicalize_ticker, canonicalize_ticker_list, canonicalize_ticker_materiality
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -264,6 +265,10 @@ def triage_document(pdf_path: str | Path, client: Anthropic | None = None) -> di
     result.setdefault("proposed_new_themes", [])
     result.setdefault("rationale", "")
     result.setdefault("confidence", "low")
+    result["tickers_covered"] = canonicalize_ticker_list(result["tickers_covered"])
+    result["materiality"]["tickers"] = canonicalize_ticker_materiality(result["materiality"].get("tickers") or {})
+    if result["primary_type"] == "single_name":
+        result["primary_subject"] = canonicalize_ticker(result["primary_subject"]) or result["primary_subject"]
 
     # Cross-check: drop any tickers/themes that aren't in our inventory
     companies = _load_companies()

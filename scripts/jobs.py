@@ -74,6 +74,24 @@ def enqueue_job(kind: str, payload: dict | None = None, dedupe_key: str | None =
         conn.close()
 
 
+def job_for_dedupe_key(dedupe_key: str) -> dict | None:
+    conn = kb.connect()
+    _init_jobs(conn)
+    try:
+        row = conn.execute(
+            """
+            SELECT id, kind, status, attempts, max_attempts, created_at, updated_at,
+                   started_at, finished_at, last_error
+            FROM jobs
+            WHERE dedupe_key = ?
+            """,
+            (dedupe_key,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def queued_summary(limit: int = 20) -> list[dict]:
     conn = kb.connect()
     _init_jobs(conn)

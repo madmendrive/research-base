@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Iterable
 
 from scripts import kb
+from scripts.tickers import canonicalize_subject, canonicalize_ticker
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -39,7 +40,7 @@ def _load_companies() -> dict:
 def _currency_for_subject(subject: str | None) -> str | None:
     if not subject:
         return None
-    subject = str(subject).strip()
+    subject = canonicalize_ticker(str(subject).strip()) or str(subject).strip()
     companies = _load_companies()
     market = (companies.get(subject) or {}).get("market")
     if market == "TW" or subject.endswith((" TT", ".TW")):
@@ -227,7 +228,11 @@ def _infer_scope(path: Path, payload: dict) -> dict:
             "subject": parts[2],
         }
     if len(parts) >= 4 and parts[1] == "research":
-        return {"corpus_type": "single_name", "subject_type": "ticker", "subject": parts[0]}
+        return {
+            "corpus_type": "single_name",
+            "subject_type": "ticker",
+            "subject": canonicalize_ticker(parts[0]) or parts[0],
+        }
     return {
         "corpus_type": "research",
         "subject_type": "unknown",
@@ -272,7 +277,7 @@ def _insert_source(conn, source_uri: str, path: Path, payload: dict, scope: dict
             source_uri,
             scope["corpus_type"],
             scope["subject_type"],
-            scope["subject"],
+            canonicalize_subject(scope["subject_type"], scope["subject"]) or scope["subject"],
             meta.get("title"),
             meta.get("author"),
             meta.get("publisher"),
@@ -292,6 +297,8 @@ def _insert_view(conn, source_uri: str, scope: dict, meta: dict, theme: str, vie
                  subject_override: str | None = None, subject_type_override: str | None = None) -> None:
     if not theme or not view:
         return
+    subject_type = subject_type_override or scope["subject_type"]
+    subject = canonicalize_subject(subject_type, subject_override or scope["subject"]) or (subject_override or scope["subject"])
     conn.execute(
         """
         INSERT INTO research_views
@@ -301,8 +308,8 @@ def _insert_view(conn, source_uri: str, scope: dict, meta: dict, theme: str, vie
         """,
         (
             source_uri,
-            subject_type_override or scope["subject_type"],
-            subject_override or scope["subject"],
+            subject_type,
+            subject,
             meta.get("author"),
             meta.get("publisher"),
             str(theme),
@@ -322,6 +329,8 @@ def _insert_estimate(conn, source_uri: str, scope: dict, meta: dict, metric: str
                      subject_type_override: str | None = None) -> None:
     if not metric or value is None:
         return
+    subject_type = subject_type_override or scope["subject_type"]
+    subject = canonicalize_subject(subject_type, subject_override or scope["subject"]) or (subject_override or scope["subject"])
     value_text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     conn.execute(
         """
@@ -332,8 +341,8 @@ def _insert_estimate(conn, source_uri: str, scope: dict, meta: dict, metric: str
         """,
         (
             source_uri,
-            subject_type_override or scope["subject_type"],
-            subject_override or scope["subject"],
+            subject_type,
+            subject,
             meta.get("author"),
             meta.get("publisher"),
             str(metric),
@@ -352,6 +361,7 @@ def _insert_estimate(conn, source_uri: str, scope: dict, meta: dict, metric: str
 def _insert_rating(conn, source_uri: str, scope: dict, meta: dict, rating: dict) -> None:
     if not isinstance(rating, dict) or not any(rating.get(k) for k in ("rating", "target_price")):
         return
+    subject = canonicalize_subject(scope["subject_type"], scope["subject"]) or scope["subject"]
     conn.execute(
         """
         INSERT INTO research_ratings
@@ -361,12 +371,12 @@ def _insert_rating(conn, source_uri: str, scope: dict, meta: dict, rating: dict)
         """,
         (
             source_uri,
-            scope["subject"],
+            subject,
             meta.get("author"),
             meta.get("publisher"),
             rating.get("rating"),
             _num(rating.get("target_price")),
-            _normalise_target_price_currency(scope["subject"], rating.get("target_price_currency")),
+            _normalise_target_price_currency(subject, rating.get("target_price_currency")),
             _num(rating.get("previous_target_price")),
             meta.get("published_at"),
             _now(),
@@ -377,6 +387,7 @@ def _insert_rating(conn, source_uri: str, scope: dict, meta: dict, rating: dict)
 def _insert_change(conn, source_uri: str, scope: dict, meta: dict, change: str) -> None:
     if not change:
         return
+    subject = canonicalize_subject(scope["subject_type"], scope["subject"]) or scope["subject"]
     conn.execute(
         """
         INSERT INTO research_changes
@@ -387,7 +398,7 @@ def _insert_change(conn, source_uri: str, scope: dict, meta: dict, change: str) 
         (
             source_uri,
             scope["subject_type"],
-            scope["subject"],
+            subject,
             meta.get("author"),
             meta.get("publisher"),
             str(change),
@@ -400,6 +411,7 @@ def _insert_change(conn, source_uri: str, scope: dict, meta: dict, change: str) 
 def _insert_debate(conn, source_uri: str, scope: dict, meta: dict, debate: dict) -> None:
     if not isinstance(debate, dict) or not debate.get("debate"):
         return
+    subject = canonicalize_subject(scope["subject_type"], scope["subject"]) or scope["subject"]
     conn.execute(
         """
         INSERT INTO research_debates
@@ -410,7 +422,7 @@ def _insert_debate(conn, source_uri: str, scope: dict, meta: dict, debate: dict)
         (
             source_uri,
             scope["subject_type"],
-            scope["subject"],
+            subject,
             meta.get("author"),
             meta.get("publisher"),
             debate.get("debate"),
@@ -756,7 +768,8 @@ def status(conn: sqlite3.Connection | None = None) -> dict:
 def subject_snapshot(subject: str, limit: int = 8) -> str:
     conn = kb.connect()
     init_schema(conn)
-    subject_l = subject.lower()
+    canonical_subject = canonicalize_ticker(subject) or subject
+    subject_l = canonical_subject.lower()
     try:
         sources = [
             dict(r)
@@ -824,7 +837,7 @@ def subject_snapshot(subject: str, limit: int = 8) -> str:
     finally:
         conn.close()
 
-    lines = [f"# Research Memory Snapshot: {subject}", ""]
+    lines = [f"# Research Memory Snapshot: {canonical_subject}", ""]
     lines.append(f"Sources indexed: {len(sources)}")
     if ratings:
         lines.append("\n## Ratings / Targets")
@@ -893,13 +906,27 @@ def query_context(query: str, limit: int = 10) -> str:
     }
 
     terms = []
-    for term in re.findall(r"[A-Za-z0-9.$_-]{2,}", query):
+
+    def add_term(term: str) -> None:
         term_l = term.lower().strip("._-$")
         if not term_l or term_l in stopwords or term_l in source_alias_words:
-            continue
+            return
         if term_l not in terms:
             terms.append(term_l)
-        if len(terms) >= 14:
+        canonical = canonicalize_ticker(term)
+        if canonical and canonical != term:
+            canonical_l = canonical.lower()
+            if canonical_l not in terms:
+                terms.append(canonical_l)
+            for part in re.findall(r"[A-Za-z0-9]{2,}", canonical):
+                part_l = part.lower()
+                if part_l not in terms and part_l not in stopwords:
+                    terms.append(part_l)
+
+    for term in re.findall(r"[A-Za-z0-9.$_-]{2,}", query):
+        add_term(term)
+        if len(terms) >= 18:
+            terms = terms[:18]
             break
     if not terms and not requested_sources:
         return ""

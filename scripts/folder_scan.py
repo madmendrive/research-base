@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from scripts.jobs import enqueue_job
+from scripts.jobs import enqueue_job, job_for_dedupe_key
 from scripts.notify import telegram_send
 
 IGNORE_PATTERNS = (
@@ -39,21 +39,37 @@ def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
     if not base.exists() or not base.is_dir():
         raise FileNotFoundError(base)
     globber = base.rglob if recursive else base.glob
+    scanned = 0
     queued = 0
+    already_seen = 0
     skipped = 0
     for pdf in sorted(globber("*.pdf")):
         if not pdf.is_file() or _is_temp_file(pdf):
             skipped += 1
             continue
+        scanned += 1
         digest = _hash_file(pdf)
+        dedupe_key = f"ingest_file:{digest}"
+        if job_for_dedupe_key(dedupe_key):
+            already_seen += 1
+            continue
         job_id = enqueue_job(
             "ingest_file",
             {"path": str(pdf), "notify": analyse},
-            dedupe_key=f"ingest_file:{digest}",
+            dedupe_key=dedupe_key,
         )
         if job_id:
             queued += 1
-    stats = {"folder": str(base), "queued": queued, "skipped": skipped}
+    stats = {
+        "folder": str(base),
+        "scanned": scanned,
+        "queued": queued,
+        "already_seen": already_seen,
+        "skipped": skipped,
+    }
     if notify:
-        telegram_send(f"Folder scan queued {queued} PDF(s) from {base}")
+        telegram_send(
+            f"Folder scan: {scanned} PDF(s) scanned from {base}; "
+            f"{queued} new queued, {already_seen} already seen, {skipped} skipped."
+        )
     return stats

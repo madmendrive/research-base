@@ -19,6 +19,7 @@ from scripts.research_memory import (
     init_schema as init_research_memory_schema,
 )
 from scripts.study import _cost_estimate_usd, _safe_slug
+from scripts.tickers import canonicalize_ticker
 from scripts.web_context import should_use_web
 
 
@@ -236,6 +237,37 @@ class ResearchMemoryTests(unittest.TestCase):
         self.assertEqual(_normalise_target_price_currency("285A", "USD"), "JPY")
         self.assertEqual(_normalise_target_price_currency("2498.HK", "USD"), "HKD")
         self.assertEqual(_normalise_target_price_currency("AAPL", "USD"), "USD")
+
+    def test_ticker_canonicalization_uses_company_aliases(self):
+        self.assertEqual(canonicalize_ticker("005930.KS"), "005930 KS")
+        self.assertEqual(canonicalize_ticker("3037.TW"), "3037 TT")
+        self.assertEqual(canonicalize_ticker("285A.T"), "285A JT")
+        self.assertEqual(canonicalize_ticker("6806.T"), "6806 JP")
+
+    def test_research_memory_canonicalizes_source_subject(self):
+        payload = {
+            "metadata": {
+                "source": "J.P. Morgan",
+                "author": "JPM Analyst",
+                "date": "2026-06-02",
+                "title": "Samsung Memory Update",
+                "source_type": "sellside_research",
+            },
+            "key_estimates": {"revenue": {"CY2026": "KRW 100tn"}},
+        }
+        test_dir = DATA_DIR / "005930.KS" / "research" / "notes" / "_test_research_memory"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_dir) as td:
+            path = Path(td) / "JPM_Samsung_2026-06-02.pdf.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            conn = sqlite3.connect(":memory:")
+            conn.row_factory = sqlite3.Row
+            ingest_research_memory_file(conn, path)
+            source = conn.execute("SELECT subject FROM research_sources").fetchone()
+            estimate = conn.execute("SELECT subject FROM research_estimates").fetchone()
+            self.assertEqual(source["subject"], "005930 KS")
+            self.assertEqual(estimate["subject"], "005930 KS")
+            conn.close()
 
     def test_research_memory_ingests_nested_other_key_metrics(self):
         payload = {
