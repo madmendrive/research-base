@@ -589,16 +589,17 @@ def _ingest_thematic(conn, source_uri: str, scope: dict, meta: dict, payload: di
     for ticker, mention in (payload.get("company_specific_mentions") or {}).items():
         if not isinstance(mention, dict):
             continue
+        canonical_ticker = canonicalize_ticker(ticker) or ticker
         view = "; ".join(str(x) for x in mention.get("key_points", []) or mention.get("mentions", []) or [])
         _insert_view(
             conn,
             source_uri,
             scope,
             meta,
-            f"company mention: {ticker}",
+            f"company mention: {canonical_ticker}",
             view or mention.get("outlook"),
             sentiment=mention.get("outlook"),
-            subject_override=ticker,
+            subject_override=canonical_ticker,
             subject_type_override="ticker",
             evidence=mention,
         )
@@ -613,7 +614,7 @@ def _ingest_thematic(conn, source_uri: str, scope: dict, meta: dict, payload: di
                         metric,
                         period,
                         period_value,
-                        subject_override=ticker,
+                        subject_override=canonical_ticker,
                         subject_type_override="ticker",
                     )
             else:
@@ -625,7 +626,7 @@ def _ingest_thematic(conn, source_uri: str, scope: dict, meta: dict, payload: di
                     metric,
                     None,
                     value,
-                    subject_override=ticker,
+                    subject_override=canonical_ticker,
                     subject_type_override="ticker",
                 )
 
