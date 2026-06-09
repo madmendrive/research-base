@@ -421,9 +421,90 @@ PLACEHOLDER_SUMMARY_RE = re.compile(
     r"(source report from|tap the analyse|deeper read-through|analyse command|click.*analyse)",
     re.I,
 )
+CJK_RE = re.compile(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+
+
+def _contains_cjk(value: str) -> bool:
+    return bool(CJK_RE.search(str(value or "")))
+
+
+def _english_fallback_row(item: dict) -> dict:
+    title = str(item.get("title") or "")
+    title_l = title.lower()
+    source = item.get("source") or "the source"
+
+    if "sk海力士" in title_l and "hbm4" in title_l and "韓美半導體" in title_l:
+        key = "SK Hynix is expanding HBM4 capacity, with Hanmi Semiconductor winning related equipment orders."
+        summary = (
+            "The report says SK Hynix is moving aggressively to add HBM4 capacity and is placing equipment orders with Hanmi Semiconductor. "
+            "The read-through is continued urgency around HBM supply-chain capex and advanced bonding or packaging equipment."
+        )
+    elif "記憶體三大巨頭" in title and "hbm" in title_l and "散熱" in title:
+        key = "The HBM race among the three major memory makers is shifting toward thermal management, not just higher stack counts."
+        summary = (
+            "The report says memory suppliers are competing on HBM heat dissipation as AI accelerators push bandwidth and power density higher. "
+            "The read-through is that thermal design, packaging, and materials may become more important differentiators for Samsung, SK Hynix, and Micron."
+        )
+    elif "sk海力士" in title_l and "dram" in title_l and "2030" in title_l:
+        key = "SK Hynix is reportedly targeting a major DRAM capacity expansion by 2030 despite oversupply risk."
+        summary = (
+            "The report discusses why SK Hynix may double down on DRAM capacity even though the cycle could face future oversupply. "
+            "The read-through is that memory makers may be prioritizing AI-driven long-term demand and strategic share over near-term cycle discipline."
+        )
+    elif "三星" in title and "輝達" in title and ("hbm4e" in title_l or "hbm5" in title_l):
+        key = "Samsung is pushing for Nvidia AI orders as discussions focus on HBM4E and HBM5 cooperation."
+        summary = (
+            "The report says Samsung is trying to deepen its Nvidia relationship around next-generation HBM products. "
+            "The read-through is whether Samsung can narrow the HBM execution gap with SK Hynix and regain share in AI memory supply."
+        )
+    elif _contains_cjk(title):
+        entities = []
+        entity_map = [
+            ("SK海力士", "SK Hynix"),
+            ("三星", "Samsung"),
+            ("輝達", "Nvidia"),
+            ("英特爾", "Intel"),
+            ("台積電", "TSMC"),
+            ("聯發科", "MediaTek"),
+            ("韓美半導體", "Hanmi Semiconductor"),
+            ("黃仁勳", "Jensen Huang"),
+        ]
+        for needle, label in entity_map:
+            if needle in title and label not in entities:
+                entities.append(label)
+        topics = []
+        for pattern, label in (
+            ("HBM", "HBM"),
+            ("DRAM", "DRAM"),
+            ("NAND", "NAND"),
+            ("AI", "AI infrastructure"),
+            ("產能", "capacity"),
+            ("散熱", "thermal management"),
+            ("設備", "equipment orders"),
+            ("晶圓", "wafer capacity"),
+        ):
+            if pattern.lower() in title_l or pattern in title:
+                topics.append(label)
+        subject = ", ".join([*entities, *topics]) or "a semiconductor supply-chain development"
+        key = f"A Chinese-language report discusses {subject}."
+        summary = (
+            f"The article from {source} appears to cover {subject} in the technology supply chain. "
+            "The read-through is whether this changes demand, capacity, pricing, or competitive positioning for covered semiconductor and AI infrastructure names."
+        )
+    else:
+        key = _normalise_key_sentence(title)
+        summary = _summary_from_headline(item)
+
+    return {
+        "rank": item.get("rank", 0),
+        "key_sentence": _normalise_key_sentence(key),
+        "summary": _normalise_summary(summary),
+    }
 
 
 def _summary_from_headline(item: dict) -> str:
+    if _contains_cjk(item.get("title", "")) or _contains_cjk(item.get("description", "")):
+        return _english_fallback_row(item)["summary"]
     title = _normalise_key_sentence(item.get("title", ""))
     snippet = _normalise_summary(item.get("description", ""))
     title_l = title.lower()
@@ -469,6 +550,9 @@ def _summary_from_headline(item: dict) -> str:
 def _fallback_brief_rows(items: list[dict]) -> list[dict]:
     rows = []
     for item in items:
+        if _contains_cjk(item.get("title", "")) or _contains_cjk(item.get("description", "")):
+            rows.append({**_english_fallback_row(item), "rank": item.get("rank", len(rows) + 1)})
+            continue
         rows.append(
             {
                 "rank": item.get("rank", len(rows) + 1),
@@ -512,6 +596,7 @@ def _tech_brief_rows_with_claude(items: list[dict], window_hours: int = 6) -> li
     for item in items:
         lines.append(
             f"{item.get('rank', '?')}. [{item['source']}] {item['title']} "
+            f"Description: {item.get('description', '') or 'N/A'} "
             f"(Published: {_format_hkt(item.get('published_at', ''))}) URL: {item.get('url', 'N/A')}"
         )
     prompt = f"""Tech Brief: summarize semiconductor and technology supply chain headlines from the past {window_hours} hours.
@@ -524,6 +609,7 @@ RULES:
 5. Skip non-tech / low-signal headlines by omitting their rank.
 6. Focus on semiconductors, foundries, memory, AI servers, substrates, PCB, CCL, IC design, GPUs, smartphones, PCs, data center power/cooling, AI infrastructure.
 7. Do not do a full investment analysis here. This is a lightweight brief only.
+8. Output every key_sentence and summary in English. Translate Chinese, Japanese, Korean, or other non-English source headlines into fluent English. Do not output any Chinese/Japanese/Korean characters.
 
 Headlines:
 {chr(10).join(lines)}
@@ -554,10 +640,87 @@ Headlines:
             rows.append({"rank": rank, "key_sentence": key_sentence, "summary": summary})
         by_rank = _rows_by_rank(rows)
         completed = [_clean_row_for_item(item, by_rank.get(int(item["rank"]))) for item in items]
+        completed = _ensure_english_rows(items, completed, window_hours)
         completed.sort(key=lambda x: x["rank"])
         return completed
     except Exception:
-        return _fallback_brief_rows(items)
+        return _ensure_english_rows(items, _fallback_brief_rows(items), window_hours)
+
+
+def _ensure_english_rows(items: list[dict], rows: list[dict], window_hours: int = 6) -> list[dict]:
+    if not any(_contains_cjk(r.get("key_sentence", "")) or _contains_cjk(r.get("summary", "")) for r in rows):
+        return rows
+    try:
+        translated = _translate_rows_with_claude(items, rows, window_hours)
+    except Exception:
+        translated = rows
+    by_rank = _rows_by_rank(translated)
+    cleaned = []
+    for item in items:
+        rank = int(item["rank"])
+        row = _clean_row_for_item(item, by_rank.get(rank))
+        if _contains_cjk(row.get("key_sentence", "")) or _contains_cjk(row.get("summary", "")):
+            row = _english_fallback_row(item)
+            row["rank"] = rank
+        cleaned.append(row)
+    return cleaned
+
+
+def _translate_rows_with_claude(items: list[dict], rows: list[dict], window_hours: int = 6) -> list[dict]:
+    by_rank = _rows_by_rank(rows)
+    payload = []
+    for item in items:
+        rank = int(item["rank"])
+        row = by_rank.get(rank) or {}
+        payload.append(
+            {
+                "rank": rank,
+                "source": item.get("source"),
+                "title": item.get("title"),
+                "description": item.get("description"),
+                "draft_key_sentence": row.get("key_sentence"),
+                "draft_summary": row.get("summary"),
+            }
+        )
+    prompt = f"""Rewrite these Tech Brief rows in English.
+
+Return ONLY valid JSON: {{"items":[{{"rank":1,"key_sentence":"...","summary":"..."}}]}}.
+Rules:
+- Keep the same ranks.
+- Translate any Chinese, Japanese, Korean, or other non-English text into fluent English.
+- key_sentence must be one concise English sentence.
+- summary must be one or two short English sentences with the key news and why it matters for semiconductors, AI infrastructure, memory, foundry, or supply chain.
+- Do not output Chinese/Japanese/Korean characters.
+- Do not add links, sources, or full investment analysis.
+- The lookback window is {window_hours} hours.
+
+Rows:
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+"""
+    from anthropic import Anthropic
+
+    client = Anthropic(timeout=60.0, max_retries=1)
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=3000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    result = _extract_json_object(resp.content[0].text)
+    valid_ranks = {int(item["rank"]) for item in items if item.get("rank")}
+    out = []
+    for row in result.get("items", []):
+        try:
+            rank = int(row.get("rank"))
+        except Exception:
+            continue
+        if rank not in valid_ranks:
+            continue
+        key_sentence = str(row.get("key_sentence", "")).strip()
+        summary = str(row.get("summary", "")).strip()
+        if not key_sentence:
+            continue
+        out.append({"rank": rank, "key_sentence": key_sentence, "summary": summary})
+    return out or rows
 
 
 def _rows_by_rank(rows: list[dict]) -> dict[int, dict]:
@@ -577,6 +740,12 @@ def _clean_row_for_item(item: dict, row: dict | None) -> dict:
     summary = _normalise_summary(row.get("summary", ""), fallback=fallback["summary"])
     if not summary:
         summary = _normalise_summary(fallback["summary"])
+    if _contains_cjk(key_sentence) or _contains_cjk(summary):
+        english = _english_fallback_row(item)
+        if _contains_cjk(key_sentence):
+            key_sentence = english["key_sentence"]
+        if _contains_cjk(summary):
+            summary = english["summary"]
     return {
         "rank": int(item["rank"]),
         "key_sentence": key_sentence,

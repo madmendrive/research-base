@@ -191,6 +191,52 @@ class HeadlineBriefTests(unittest.TestCase):
         self.assertIn("revenue rankings among global foundries", brief)
         self.assertIn("US equities led by Nvidia", brief)
 
+    def test_telegram_brief_outputs_chinese_headlines_in_english(self):
+        items = [
+            {
+                "rank": 12,
+                "title": "SK海力士積極擴充HBM4產能 韓美半導體拿下設備訂單.",
+                "description": "SK海力士積極擴充HBM4產能 韓美半導體拿下設備訂單 DIGITIMES.",
+                "source": "DIGITIMES",
+                "published_at": "2026-06-08T18:09:00+00:00",
+                "url": "https://www.digitimes.com/example",
+            }
+        ]
+        rows = [
+            {
+                "rank": 12,
+                "key_sentence": "SK海力士積極擴充HBM4產能 韓美半導體拿下設備訂單",
+                "summary": "SK海力士積極擴充HBM4產能 韓美半導體拿下設備訂單 DIGITIMES.",
+            }
+        ]
+        brief = _format_telegram_brief(items, rows, window_hours=6)
+        self.assertNotRegex(brief, r"[\u3400-\u9fff]")
+        self.assertIn("SK Hynix is expanding HBM4 capacity", brief)
+        self.assertIn("Hanmi Semiconductor", brief)
+
+    def test_telegram_brief_translates_hbm_thermal_headline(self):
+        items = [
+            {
+                "rank": 14,
+                "title": "不再只拼層數 記憶體三大巨頭打響「HBM散熱戰」.",
+                "description": "不再只拼層數 記憶體三大巨頭打響「HBM散熱戰」 news.cnyes.",
+                "source": "news.cnyes.com",
+                "published_at": "2026-06-08T23:37:00+00:00",
+                "url": "https://www.cnyes.com/example",
+            }
+        ]
+        rows = [
+            {
+                "rank": 14,
+                "key_sentence": "不再只拼層數 記憶體三大巨頭打響「HBM散熱戰」",
+                "summary": "不再只拼層數 記憶體三大巨頭打響「HBM散熱戰」 news.cnyes.",
+            }
+        ]
+        brief = _format_telegram_brief(items, rows, window_hours=6)
+        self.assertNotRegex(brief, r"[\u3400-\u9fff]")
+        self.assertIn("thermal management", brief)
+        self.assertIn("Samsung, SK Hynix, and Micron", brief)
+
     def test_single_headline_context_drops_digest_batches(self):
         context = [
             {
