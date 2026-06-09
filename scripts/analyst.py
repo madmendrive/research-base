@@ -689,6 +689,19 @@ def headline_readthrough(items: list[dict], context_limit: int = 12) -> str:
         structured_context = query_context(" ".join(query_terms), limit=12)
     except Exception:
         structured_context = ""
+    web_context = ""
+    if single_item:
+        try:
+            from scripts.web_context import fetch_web_context
+
+            web_query = _headline_web_freshness_query(items[0])
+            web_context = fetch_web_context(
+                web_query,
+                kb_result_count=len(context),
+                has_structured_context=bool(structured_context),
+            )
+        except Exception:
+            web_context = ""
 
     headline_lines = [
         json.dumps(
@@ -709,6 +722,9 @@ def headline_readthrough(items: list[dict], context_limit: int = 12) -> str:
 Selected headline to analyse. Analyse ONLY this headline; do not create a ranked list of other headlines:
 {headline_lines[0]}
 
+Live web freshness / prior-reporting check:
+{web_context or "No live web context fetched."}
+
 Private local research / knowledge base context:
 {_private_context(context, max_chars_per_item=1400)}
 
@@ -718,18 +734,23 @@ Structured research memory:
 Strict rules:
 - Do not analyse other headlines mentioned in the KB context. Use them only as comparison/background.
 - Do not write "#1", "#2", or a multi-headline ranked read-through.
+- Treat the live web check as mandatory evidence for freshness. Explicitly decide whether the selected headline is genuinely new, incremental, recycled, or old news.
+- Compare publication dates and source quality where the web context gives them.
+- If one part of the headline is old but another part is new, split the analysis into "already known" and "incremental" components.
+- Do not call something a meaningful upgrade merely because the selected headline says it if older web reporting or the KB already established it.
 - The output should be concise but investment-useful.
 
 Write this Telegram-ready structure:
 1. Bottom line
-2. What changed
-3. Compare vs existing KB
-4. Implications for covered stocks/themes
-5. What to watch next
+2. Freshness / novelty check
+3. What changed
+4. Compare vs existing KB
+5. Implications for covered stocks/themes
+6. What to watch next
 
 Do not append a raw source list.
 """
-        return _call_claude(prompt, max_tokens=2200)
+        return _call_claude(prompt, max_tokens=_env_int("HEADLINE_READTHROUGH_MAX_TOKENS", 5000))
 
     prompt = f"""\
 New headline batch:
@@ -750,6 +771,20 @@ Write a concise ranked Telegram read-through. For each material headline, cover:
 Skip low-signal items. Do not append a raw source list.
 """
     return _call_claude(prompt, max_tokens=3000)
+
+
+def _headline_web_freshness_query(item: dict) -> str:
+    title = str(item.get("title") or "").strip()
+    source = str(item.get("source") or "").strip()
+    published_at = str(item.get("published_at") or "").strip()
+    url = str(item.get("url") or "").strip()
+    return (
+        "Freshness check for this technology/semiconductor headline. "
+        "Search the live web for prior reports and current corroboration. "
+        "Determine whether the claim is genuinely new today, incremental versus older reporting, or old/recycled news. "
+        "Compare publication dates and cite the earliest reputable prior report if found. "
+        f"Headline: {title}. Source: {source}. Published at: {published_at}. URL: {url}"
+    )
 
 
 def research_readthrough(result: dict, filename: str) -> str:

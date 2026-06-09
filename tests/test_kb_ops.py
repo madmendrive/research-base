@@ -3,9 +3,10 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import kb
-from scripts.analyst import _filter_single_headline_context, _is_source_constrained_query
+from scripts.analyst import _filter_single_headline_context, _headline_web_freshness_query, _is_source_constrained_query
 from scripts.claude_export import import_claude_export
 from scripts.heartbeat import _scheduled_slot_due, _time_due, load_agenda
 from scripts.headlines import _format_telegram_brief
@@ -256,6 +257,46 @@ class HeadlineBriefTests(unittest.TestCase):
         )
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0]["title"], "Unimicron ABF substrate note")
+
+    def test_headline_web_freshness_query_asks_for_prior_reporting(self):
+        query = _headline_web_freshness_query(
+            {
+                "title": "Samsung is already shipping HBM4 for Vera Rubin",
+                "source": "Digitimes",
+                "published_at": "2026-06-09T00:00:00+00:00",
+                "url": "https://example.com",
+            }
+        )
+        self.assertIn("prior reports", query)
+        self.assertIn("old/recycled news", query)
+        self.assertIn("earliest reputable prior report", query)
+
+    def test_single_headline_readthrough_includes_web_freshness_context(self):
+        from scripts import analyst
+
+        captured = {}
+
+        def fake_call(prompt, max_tokens=4000):
+            captured["prompt"] = prompt
+            captured["max_tokens"] = max_tokens
+            return "analysis"
+
+        item = {
+            "title": "Samsung is already shipping HBM4 for Vera Rubin",
+            "source": "Digitimes",
+            "published_at": "2026-06-09T00:00:00+00:00",
+            "url": "https://example.com",
+            "entities": {"tickers": ["005930 KS"], "themes": ["HBM"]},
+        }
+        with mock.patch.object(analyst.kb, "search", return_value=[]), \
+             mock.patch("scripts.research_memory.query_context", return_value="structured memory"), \
+             mock.patch("scripts.web_context.fetch_web_context", return_value="<live_web_context>Prior report found.</live_web_context>"), \
+             mock.patch.object(analyst, "_call_claude", side_effect=fake_call):
+            self.assertEqual(analyst.headline_readthrough([item]), "analysis")
+        self.assertIn("Live web freshness / prior-reporting check", captured["prompt"])
+        self.assertIn("Prior report found", captured["prompt"])
+        self.assertIn("Freshness / novelty check", captured["prompt"])
+        self.assertGreaterEqual(captured["max_tokens"], 5000)
 
 
 class ResearchMemoryTests(unittest.TestCase):
