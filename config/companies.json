@@ -1695,5 +1695,58 @@
     "name": "Piotech",
     "market": "CN",
     "ir_url": ""
+  },
+  "2382 TT": {
+    "name": "Quanta Computer",
+    "market": "TW",
+    "ir_url": "https://www.quantatw.com/Quanta/english/investor/",
+    "twse_code": "2382",
+    "fiscal_year_end": "December"
+  },
+  "2049 TT": {
+    "name": "Hiwin Technologies",
+    "market": "TW",
+    "ir_url": "https://www.hiwin.tw/en/investors",
+    "twse_code": "2049",
+    "fiscal_year_end": "December"
+  },
+  "2376 TT": {
+    "name": "Gigabyte Technology",
+    "market": "TW",
+    "ir_url": "https://www.gigabyte.com/Investor",
+    "twse_code": "2376",
+    "fiscal_year_end": "December"
+  },
+  "8112 TT": {
+    "name": "Supreme Electronics",
+    "market": "TW",
+    "ir_url": "",
+    "twse_code": "8112",
+    "fiscal_year_end": "December"
+  },
+  "148 HK": {
+    "name": "Kingboard Holdings",
+    "market": "HK",
+    "ir_url": "https://www.kingboard.com/en/investor-relations"
+  },
+  "002916 CH": {
+    "name": "Shennan Circuits",
+    "market": "CN",
+    "ir_url": ""
+  },
+  "300476 CH": {
+    "name": "Victory Giant Technology",
+    "market": "CN",
+    "ir_url": ""
+  },
+  "002463 CH": {
+    "name": "WUS Printed Circuit",
+    "market": "CN",
+    "ir_url": ""
+  },
+  "VLX LN": {
+    "name": "Volex",
+    "market": "UK",
+    "ir_url": "https://www.volex.com/investors/"
   }
 }
