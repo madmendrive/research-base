@@ -9,6 +9,7 @@ CLI: python main.py bulk-ingest --folder PATH [--dry-run] [--limit N] [--with-cr
 import hashlib
 import json
 import os
+import re
 import time
 import traceback
 from datetime import datetime
@@ -70,6 +71,42 @@ def _scan_pdfs(folder: Path) -> list[Path]:
 COMPANIES_PATH = PROJECT_ROOT / "config" / "companies.json"
 
 
+# Ticker formats accepted from triage proposals (see CLAUDE.md conventions).
+# Anything else — prose names ("Hon Hai"), wrong separators ("2049.TW"),
+# parenthesised hybrids — is rejected; canonical entries get added by hand.
+_TICKER_FORMATS = (
+    re.compile(r"^[A-Z]{1,6}$"),                          # US bare symbol
+    re.compile(r"^\d{3,6} (TT|TWO|JT|KS|HK|SP|CH)$"),     # Asia numeric + suffix
+    re.compile(r"^[A-Z0-9]{1,6} (SP|AV|LN|TT)$"),         # lettered + suffix
+)
+
+_NAME_SUFFIXES = re.compile(
+    r"\b(co|ltd|inc|corp|corporation|company|holdings?|limited|plc|technologies)\b\.?", re.I
+)
+
+
+def _normalize_company_name(name: str) -> str:
+    name = _NAME_SUFFIXES.sub(" ", name or "")
+    return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+
+
+def _valid_ticker_proposal(ticker: str, name: str, companies: dict) -> bool:
+    if "placeholder" in ticker.lower() or "placeholder" in name.lower():
+        return False
+    if not any(rx.match(ticker) for rx in _TICKER_FORMATS):
+        return False
+    norm_new = _normalize_company_name(name)
+    if not norm_new:
+        return False
+    # Skip proposals that duplicate a company we already cover under its
+    # canonical ticker (triage proposing "NANYA" when 2408 TT exists).
+    for existing in companies.values():
+        norm_old = _normalize_company_name(existing.get("name") or "")
+        if norm_old and (norm_new in norm_old or norm_old in norm_new):
+            return False
+    return True
+
+
 def _auto_add_tickers(proposals: list[dict]) -> list[str]:
     """Append any new tickers to companies.json. Returns list of tickers actually added."""
     if not proposals:
@@ -77,6 +114,7 @@ def _auto_add_tickers(proposals: list[dict]) -> list[str]:
     with open(COMPANIES_PATH, encoding="utf-8") as f:
         companies = json.load(f)
     added = []
+    skipped = []
     for p in proposals:
         ticker = (p.get("ticker") or "").strip()
         name = (p.get("name") or "").strip()
@@ -85,17 +123,22 @@ def _auto_add_tickers(proposals: list[dict]) -> list[str]:
             continue
         if ticker in companies:
             continue
-        if market not in ("US", "JP", "TW", "KR", "HK", "EU", "OTHER"):
+        if not _valid_ticker_proposal(ticker, name, companies):
+            skipped.append(f"{ticker} ({name})")
+            continue
+        if market not in ("US", "JP", "TW", "KR", "HK", "CN", "SG", "UK", "EU", "OTHER"):
             market = "US"  # safest default for unidentified market
         companies[ticker] = {
             "name": name,
             "market": market,
         }
         added.append(ticker)
+    if skipped:
+        print(f"  Skipped ticker proposals (format/duplicate): {', '.join(skipped[:10])}")
     if added:
-        with open(COMPANIES_PATH, "w", encoding="utf-8") as f:
-            json.dump(companies, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+        from scripts.fileio import write_json_atomic
+
+        write_json_atomic(COMPANIES_PATH, companies)
     return added
 
 
