@@ -153,6 +153,37 @@ class TickerProposalGuardTests(unittest.TestCase):
         self.assertEqual(canonicalize_ticker("6223 TWO"), "6223 TT")
 
 
+class AnalystQuestionJobTests(unittest.TestCase):
+    def _run(self, answer_fn):
+        from scripts import jobs
+
+        sent = []
+        job = {"id": 1, "kind": "analyst_question",
+               "payload_json": json.dumps({"question": "bull case for memory?", "user_id": 42})}
+        with mock.patch("scripts.analyst.answer_question", answer_fn), \
+             mock.patch.object(jobs, "telegram_send_markdownish_html", lambda t: sent.append(("html", t))), \
+             mock.patch.object(jobs, "telegram_send", lambda t, **k: sent.append(("plain", t))), \
+             mock.patch("scripts.learning.log_interaction", lambda *a, **k: 0):
+            result = jobs._process_job(job)
+        return result, sent
+
+    def test_answer_is_pushed_to_telegram(self):
+        result, sent = self._run(lambda q: "The bull case is HBM tightness.")
+        self.assertIn("answered analyst question", result)
+        self.assertEqual(sent[0][0], "html")
+        self.assertIn("bull case for memory?", sent[0][1])
+        self.assertIn("HBM tightness", sent[0][1])
+
+    def test_failure_reports_to_telegram_without_retry_loop(self):
+        def boom(q):
+            raise RuntimeError("provider down")
+
+        result, sent = self._run(boom)
+        self.assertIn("failed", result)
+        self.assertEqual(sent[0][0], "plain")
+        self.assertIn("provider down", sent[0][1])
+
+
 class MetaScalarTests(unittest.TestCase):
     def test_list_author_coerced_to_string(self):
         from scripts.research_memory import _meta
