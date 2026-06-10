@@ -116,6 +116,20 @@ class BulkIngestSeesSweeperStateTests(unittest.TestCase):
                 self.assertEqual(bulk_ingest._sweeper_hashes(), {"feed42"})
 
 
+class MetaScalarTests(unittest.TestCase):
+    def test_list_author_coerced_to_string(self):
+        from scripts.research_memory import _meta
+
+        meta = _meta({"metadata": {"author": ["Gokul Hariharan", "JJ Park"], "title": "Note", "source": "JPM"}})
+        self.assertEqual(meta["author"], "Gokul Hariharan, JJ Park")
+        self.assertEqual(meta["title"], "Note")
+
+    def test_empty_list_becomes_none(self):
+        from scripts.research_memory import _meta
+
+        self.assertIsNone(_meta({"metadata": {"author": []}})["author"])
+
+
 class ReingestClippedTests(unittest.TestCase):
     def test_clears_matching_hashes_across_state_files(self):
         import hashlib

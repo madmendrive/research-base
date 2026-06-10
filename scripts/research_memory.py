@@ -267,14 +267,22 @@ def _infer_scope(path: Path, payload: dict) -> dict:
     }
 
 
+def _scalar(value):
+    """Extractions sometimes return lists for author/title fields; SQLite
+    bindings need scalars."""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value if v) or None
+    return value
+
+
 def _meta(payload: dict) -> dict:
     meta = payload.get("metadata") or {}
     return {
-        "title": meta.get("title"),
-        "author": meta.get("author"),
-        "publisher": meta.get("source") or meta.get("firm"),
-        "published_at": meta.get("date"),
-        "source_kind": meta.get("source_type") or meta.get("publication_type"),
+        "title": _scalar(meta.get("title")),
+        "author": _scalar(meta.get("author")),
+        "publisher": _scalar(meta.get("source") or meta.get("firm")),
+        "published_at": _scalar(meta.get("date")),
+        "source_kind": _scalar(meta.get("source_type") or meta.get("publication_type")),
     }
 
 
