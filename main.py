@@ -572,6 +572,21 @@ def reingest_clipped_cmd(folder, threshold, apply):
         click.echo("\nDry run only. Re-run with --apply, then run: python main.py bulk-ingest")
 
 
+@cli.command("reingest-stale-schema")
+@click.option("--cutoff", default=None,
+              help="UTC ISO instant; stage records older than this are re-queued (default: the schema-evolution commit time).")
+@click.option("--apply", is_flag=True,
+              help="Clear the stale docs' ingest-state hashes and staging records. Without this flag, just list them.")
+def reingest_stale_schema_cmd(cutoff, apply):
+    """Re-queue docs extracted before the enriched schema (segments/valuation/primer fields)."""
+    from scripts.reingest_clipped import SCHEMA_CUTOFF_UTC, reingest_stale_schema
+
+    stats = reingest_stale_schema(cutoff=cutoff or SCHEMA_CUTOFF_UTC, apply=apply)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+    if stats["stale"] and not apply:
+        click.echo("\nDry run only. Re-run with --apply, then run: python main.py bulk-ingest-fast")
+
+
 @cli.command("research-map-reindex")
 @click.option("--force", is_flag=True, help="Rebuild structured research-memory tables from scratch.")
 @click.option("--limit", default=0, type=int, help="Index at most N extracted JSON notes (0 = unlimited).")

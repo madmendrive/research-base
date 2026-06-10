@@ -72,6 +72,50 @@ def _clear_hashes(state_path: Path, keys: set[str], buckets: tuple[str, ...]) ->
     return removed
 
 
+# UTC instant of the schema-evolution commit (f0853a4, 2026-06-10 14:24:38
+# HKT). Stage records older than this were extracted with the pre-enrichment
+# schema (no segment_estimates / valuation / industry_assumptions /
+# primer_concepts fields).
+SCHEMA_CUTOFF_UTC = "2026-06-10T06:24:38+00:00"
+
+
+def reingest_stale_schema(cutoff: str = SCHEMA_CUTOFF_UTC, apply: bool = False) -> dict:
+    """Queue re-ingestion of docs whose staged extraction pre-dates the
+    enriched schema. Clears their state hashes and staging records so the
+    next bulk-ingest-fast re-processes exactly them."""
+    stale = []
+    for stage in sorted(STAGING_DIR.glob("*.json")):
+        try:
+            record = json.loads(stage.read_text(encoding="utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            continue
+        staged_at = str(record.get("staged_at") or "")
+        if staged_at and staged_at < cutoff:
+            stale.append({"stage": stage, "digest": record.get("digest") or stage.stem,
+                          "file": record.get("file"), "staged_at": staged_at})
+
+    stats = {
+        "cutoff": cutoff,
+        "stale": len(stale),
+        "files": [{"file": s["file"], "staged_at": s["staged_at"]} for s in stale],
+        "applied": False,
+    }
+    if not apply or not stale:
+        return stats
+
+    full_hashes = {s["digest"] for s in stale}
+    short_hashes = {h[:16] for h in full_hashes}
+    cleared = 0
+    cleared += _clear_hashes(BULK_STATE, short_hashes, ("processed", "failed"))
+    cleared += _clear_hashes(SWEEPER_STATE, short_hashes, ("processed", "failed"))
+    cleared += _clear_hashes(FAST_STATE, full_hashes, ("committed", "failed"))
+    for s in stale:
+        s["stage"].unlink(missing_ok=True)
+    stats.update({"applied": True, "state_entries_cleared": cleared,
+                  "stage_files_removed": len(stale)})
+    return stats
+
+
 def find_clipped(folder: Path, threshold: int = OLD_CAP_CHARS) -> list[dict]:
     candidates = []
     for pdf in sorted(folder.rglob("*.pdf")):
