@@ -1595,5 +1595,100 @@
   "KIOXIA": {
     "name": "Kioxia Holdings Corp",
     "market": "JP"
+  },
+  "HELK": {
+    "name": "Hemlock Semiconductor (placeholder)",
+    "market": "US"
+  },
+  "EXTREME": {
+    "name": "Extreme Networks, Inc.",
+    "market": "US"
+  },
+  "AVNET_PLACEHOLDER": {
+    "name": "Avnet, Inc.",
+    "market": "US"
+  },
+  "HONHAI_PLACEHOLDER": {
+    "name": "Hon Hai Precision Industry (Foxconn)",
+    "market": "TW"
+  },
+  "6857.T": {
+    "name": "Advantest Corp",
+    "market": "JP"
+  },
+  "2360.TW": {
+    "name": "Chroma ATE Inc",
+    "market": "TW"
+  },
+  "LUMENTUM": {
+    "name": "Lumentum Holdings Inc",
+    "market": "US"
+  },
+  "COHERENT": {
+    "name": "Coherent Corp (Coherent Inc)",
+    "market": "US"
+  },
+  "TOWER": {
+    "name": "Tower Semiconductor",
+    "market": "US"
+  },
+  "GLOBALFOUNDRIES": {
+    "name": "GlobalFoundries Inc",
+    "market": "US"
+  },
+  "AYAR": {
+    "name": "Ayar Labs",
+    "market": "US"
+  },
+  "FORMFACTOR": {
+    "name": "FormFactor Inc",
+    "market": "US"
+  },
+  "VIAVI": {
+    "name": "Viavi Solutions",
+    "market": "US"
+  },
+  "SANTEC": {
+    "name": "Santec",
+    "market": "JP"
+  },
+  "ANRITSU": {
+    "name": "Anritsu Corp",
+    "market": "JP"
+  },
+  "KEYSIGHT": {
+    "name": "Keysight Technologies",
+    "market": "US"
+  },
+  "ADVANTEST": {
+    "name": "Advantest Corp",
+    "market": "JP"
+  },
+  "CAMTEK": {
+    "name": "Camtek Ltd",
+    "market": "US"
+  },
+  "NOVA": {
+    "name": "Nova Ltd",
+    "market": "TW"
+  },
+  "CHROMA ATE": {
+    "name": "Chroma ATE Inc",
+    "market": "TW"
+  },
+  "TRIO-TECH": {
+    "name": "Trio-Tech",
+    "market": "OTHER"
+  },
+  "SPACEX_PLACEHOLDER": {
+    "name": "SpaceX (placeholder)",
+    "market": "OTHER"
+  },
+  "6515 TT": {
+    "name": "WinWay Technology",
+    "market": "TW",
+    "ir_url": "https://www.winwayglobal.com",
+    "twse_code": "6515",
+    "fiscal_year_end": "December"
   }
 }
