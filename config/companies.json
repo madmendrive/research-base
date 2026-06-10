@@ -1690,5 +1690,10 @@
     "ir_url": "https://www.winwayglobal.com",
     "twse_code": "6515",
     "fiscal_year_end": "December"
+  },
+  "688072 CH": {
+    "name": "Piotech",
+    "market": "CN",
+    "ir_url": ""
   }
 }
