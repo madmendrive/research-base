@@ -195,5 +195,22 @@ class CallApiTests(unittest.TestCase):
         self.assertNotIn("system", client.create_calls[0])
 
 
+class CachedDocumentBlockTests(unittest.TestCase):
+    def test_block_shape_and_cache_marker(self):
+        from scripts.llm_provider import cached_document_block
+
+        block = cached_document_block("doc body")
+        self.assertEqual(len(block), 1)
+        self.assertEqual(block[0]["cache_control"], {"type": "ephemeral"})
+        self.assertIn("<document>\ndoc body\n</document>", block[0]["text"])
+
+    def test_identical_text_produces_identical_block(self):
+        # Cache hits across store + cross-cut calls require byte-identical
+        # system prefixes for the same document text.
+        from scripts.llm_provider import cached_document_block
+
+        self.assertEqual(cached_document_block("same"), cached_document_block("same"))
+
+
 if __name__ == "__main__":
     unittest.main()
