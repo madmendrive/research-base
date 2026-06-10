@@ -221,25 +221,29 @@ async def _run_blocking(fn, *args, timeout_seconds: float | None = None, **kwarg
     return await future
 
 
-def _analyst_timeout_seconds() -> float:
-    return float(os.environ.get("BOT_ANALYST_TIMEOUT", os.environ.get("ANALYST_TIMEOUT", "180")))
+async def _queue_analyst_question(update: Update, question: str, source: str) -> None:
+    """Hand the question to the job worker — no deadline; the worker pushes
+    the full answer to Telegram whenever the synthesis finishes."""
+    import time as _time
 
+    from scripts.jobs import enqueue_job
 
-async def _log_analyst_interaction(update: Update, question: str, answer: str) -> None:
-    """Best-effort learning trace for follow-up feedback."""
-    try:
-        from scripts.learning import log_interaction
+    await update.message.chat.send_action(ChatAction.TYPING)
+    job_id = enqueue_job(
+        "analyst_question",
+        {"question": question, "user_id": update.effective_user.id},
+        # Unique key per ask so repeating a question later still runs.
+        dedupe_key=f"analyst_question:{update.effective_user.id}:{int(_time.time() * 1000)}",
+        max_attempts=1,
+    )
+    log.info("%s analyst question queued user_id=%s chars=%s job=%s",
+             source, update.effective_user.id, len(question), job_id)
+    await update.message.reply_text(
+        "Queued for the analyst. I am checking the local KB and structured research "
+        "memory and will send the full answer here when the synthesis finishes — "
+        "detailed questions can take several minutes."
+    )
 
-        user_id = update.effective_user.id if update.effective_user else None
-        await _run_blocking(
-            log_interaction,
-            question,
-            answer,
-            channel="telegram",
-            user_id=user_id,
-        )
-    except Exception:
-        log.exception("could not log analyst interaction")
 
 
 # ---------------------------------------------------------------------------
@@ -351,30 +355,7 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not question:
         await update.message.reply_text("Usage: /ask QUESTION")
         return
-    from scripts.analyst import answer_question
-
-    await update.message.chat.send_action(ChatAction.TYPING)
-    ack = await update.message.reply_text(
-        "Working on it. I am checking the local KB and structured research memory now."
-    )
-    log.info("/ask received user_id=%s chars=%s", update.effective_user.id, len(question))
-    try:
-        answer = await _run_blocking(
-            answer_question,
-            question,
-            timeout_seconds=_analyst_timeout_seconds(),
-        )
-    except TimeoutError:
-        log.exception("/ask analyst timeout")
-        await ack.edit_text("The analyst call timed out before it could return. Please try again or narrow the question.")
-        return
-    except Exception as e:
-        log.exception("/ask analyst failed")
-        await ack.edit_text(f"The analyst call failed: {type(e).__name__}: {e}")
-        return
-    await _log_analyst_interaction(update, question, answer)
-    await ack.edit_text("Analysis ready.")
-    await _send_long_html(update, answer)
+    await _queue_analyst_question(update, question, source="/ask")
 
 
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -797,30 +778,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if "tech brief" in lower or "headline" in lower:
         await _send_long_html(update, _tech_brief_status_text())
         return
-    from scripts.analyst import answer_question
-
-    await update.message.chat.send_action(ChatAction.TYPING)
-    ack = await update.message.reply_text(
-        "Working on it. I am checking the local KB and structured research memory now."
-    )
-    log.info("plain analyst question received user_id=%s chars=%s", update.effective_user.id, len(text))
-    try:
-        answer = await _run_blocking(
-            answer_question,
-            text,
-            timeout_seconds=_analyst_timeout_seconds(),
-        )
-    except TimeoutError:
-        log.exception("plain analyst question timed out")
-        await ack.edit_text("The analyst call timed out before it could return. Please try again or narrow the question.")
-        return
-    except Exception as e:
-        log.exception("plain analyst question failed")
-        await ack.edit_text(f"The analyst call failed: {type(e).__name__}: {e}")
-        return
-    await _log_analyst_interaction(update, text, answer)
-    await ack.edit_text("Analysis ready.")
-    await _send_long_html(update, answer)
+    await _queue_analyst_question(update, text, source="plain-text")
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

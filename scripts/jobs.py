@@ -241,6 +241,26 @@ def _process_job(job: dict) -> str:
             telegram_send_markdownish_html(research_readthrough(result, path.name))
         return f"ingested {path} -> {committed.get('stored_path')}"
 
+    if kind == "analyst_question":
+        from scripts.analyst import answer_question
+
+        question = payload["question"]
+        try:
+            answer = answer_question(question)
+        except Exception as e:
+            telegram_send(
+                f"Analyst question failed: {type(e).__name__}: {e}\n\nQuestion: {question[:300]}"
+            )
+            return f"analyst question failed: {type(e).__name__}"
+        try:
+            from scripts.learning import log_interaction
+
+            log_interaction(question, answer, channel="telegram", user_id=payload.get("user_id"))
+        except Exception:
+            pass
+        telegram_send_markdownish_html(f"**Q:** {question}\n\n{answer}")
+        return f"answered analyst question ({len(answer)} chars)"
+
     if kind == "store_override":
         from scripts.bot_pipeline import _store_primary_macro, _store_primary_research, _store_primary_thematic
 
