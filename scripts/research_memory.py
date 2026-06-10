@@ -523,8 +523,61 @@ def _ingest_key_data_points(conn, source_uri: str, scope: dict, meta: dict, payl
         )
 
 
+def _ingest_enrichment(conn, source_uri: str, scope: dict, meta: dict, payload: dict) -> None:
+    """Schema-evolution fields: segments, valuation, industry assumptions, primer concepts."""
+    for entry in payload.get("segment_estimates", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        segment = entry.get("segment") or "segment"
+        metric = f"{segment}.{entry.get('metric') or 'value'}"
+        for period, value in (entry.get("values") or {}).items():
+            _insert_estimate(conn, source_uri, scope, meta, metric, period, value, unit=entry.get("unit"))
+
+    valuation = payload.get("valuation")
+    if isinstance(valuation, dict):
+        for field in ("methodology", "multiple", "bear_case_target", "base_case_target", "bull_case_target"):
+            if valuation.get(field) is not None:
+                _insert_estimate(conn, source_uri, scope, meta, f"valuation.{field}", None, valuation.get(field))
+        assumptions = valuation.get("key_assumptions") or []
+        if assumptions:
+            _insert_view(
+                conn, source_uri, scope, meta,
+                "valuation assumptions",
+                "; ".join(str(a) for a in assumptions),
+                category="valuation",
+                evidence=valuation,
+            )
+
+    for entry in payload.get("industry_assumptions", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        _insert_estimate(
+            conn, source_uri, scope, meta,
+            entry.get("metric") or "industry_assumption",
+            entry.get("period"),
+            entry.get("value"),
+            source_detail=entry.get("basis"),
+        )
+
+    for entry in payload.get("primer_concepts", []) or []:
+        if not isinstance(entry, dict) or not entry.get("concept"):
+            continue
+        view_text = str(entry.get("explanation") or "").strip()
+        why = str(entry.get("why_it_matters") or "").strip()
+        if why:
+            view_text = f"{view_text} Why it matters: {why}".strip()
+        _insert_view(
+            conn, source_uri, scope, meta,
+            entry["concept"],
+            view_text,
+            category="primer_concept",
+            evidence=entry,
+        )
+
+
 def _ingest_single_name(conn, source_uri: str, scope: dict, meta: dict, payload: dict) -> None:
     _ingest_standard_estimates(conn, source_uri, scope, meta, payload.get("key_estimates") or {})
+    _ingest_enrichment(conn, source_uri, scope, meta, payload)
     for entry in payload.get("key_themes", []) or []:
         if not isinstance(entry, dict):
             continue
@@ -545,6 +598,7 @@ def _ingest_single_name(conn, source_uri: str, scope: dict, meta: dict, payload:
 
 
 def _ingest_macro_like(conn, source_uri: str, scope: dict, meta: dict, payload: dict) -> None:
+    _ingest_enrichment(conn, source_uri, scope, meta, payload)
     for topic, entry in (payload.get("macro_views") or {}).items():
         if isinstance(entry, dict) and entry.get("view"):
             _insert_view(
@@ -595,6 +649,7 @@ def _ingest_macro_like(conn, source_uri: str, scope: dict, meta: dict, payload: 
 
 
 def _ingest_thematic(conn, source_uri: str, scope: dict, meta: dict, payload: dict) -> None:
+    _ingest_enrichment(conn, source_uri, scope, meta, payload)
     for metric, by_period in (payload.get("theme_estimates") or {}).items():
         if not isinstance(by_period, dict):
             continue

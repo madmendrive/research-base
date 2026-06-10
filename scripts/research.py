@@ -84,11 +84,18 @@ _parse_json_response = parse_json_loose
 # Research extraction prompt
 # ---------------------------------------------------------------------------
 
+def _forecast_years():
+    """Current FY plus the next two — keeps the schema from rotting as years roll."""
+    year = datetime.now().year
+    return f"FY{year}", f"FY{year + 1}", f"FY{year + 2}"
+
+
 def _build_extraction_prompt(company_name, ticker):
     ccy = _currency_for_ticker(ticker)
     unit = ccy["unit"]
     symbol = ccy["symbol"]
     ccy_code = unit.split()[0]  # "USD", "JPY", etc.
+    fy0, fy1, fy2 = _forecast_years()
 
     return f"""\
 You are a buy-side equity research analyst. I'm giving you a research document about {company_name} ({ticker}).
@@ -108,33 +115,33 @@ Analyse this document and respond with ONLY a JSON object (no markdown, no pream
   }},
   "key_estimates": {{
     "revenue": {{
-      "FY2025": {{"value": number_or_null, "unit": "{unit}", "yoy_growth": "x%"}},
-      "FY2026": {{"value": number_or_null, "unit": "{unit}", "yoy_growth": "x%"}},
-      "FY2027": {{"value": number_or_null, "unit": "{unit}", "yoy_growth": "x%"}}
+      "{fy0}": {{"value": number_or_null, "unit": "{unit}", "yoy_growth": "x%"}},
+      "{fy1}": {{"value": number_or_null, "unit": "{unit}", "yoy_growth": "x%"}},
+      "{fy2}": {{"value": number_or_null, "unit": "{unit}", "yoy_growth": "x%"}}
     }},
     "eps": {{
-      "FY2025": {{"value": number_or_null}},
-      "FY2026": {{"value": number_or_null}},
-      "FY2027": {{"value": number_or_null}}
+      "{fy0}": {{"value": number_or_null}},
+      "{fy1}": {{"value": number_or_null}},
+      "{fy2}": {{"value": number_or_null}}
     }},
     "gross_margin": {{
-      "FY2025": {{"value": "xx.x%"}},
-      "FY2026": {{"value": "xx.x%"}},
-      "FY2027": {{"value": "xx.x%"}}
+      "{fy0}": {{"value": "xx.x%"}},
+      "{fy1}": {{"value": "xx.x%"}},
+      "{fy2}": {{"value": "xx.x%"}}
     }},
     "operating_margin": {{
-      "FY2025": {{"value": "xx.x%"}},
-      "FY2026": {{"value": "xx.x%"}},
-      "FY2027": {{"value": "xx.x%"}}
+      "{fy0}": {{"value": "xx.x%"}},
+      "{fy1}": {{"value": "xx.x%"}},
+      "{fy2}": {{"value": "xx.x%"}}
     }},
     "capex": {{
-      "FY2025": {{"value": number_or_null, "unit": "{unit}"}},
-      "FY2026": {{"value": number_or_null, "unit": "{unit}"}},
-      "FY2027": {{"value": number_or_null, "unit": "{unit}"}}
+      "{fy0}": {{"value": number_or_null, "unit": "{unit}"}},
+      "{fy1}": {{"value": number_or_null, "unit": "{unit}"}},
+      "{fy2}": {{"value": number_or_null, "unit": "{unit}"}}
     }},
     "other_key_metrics": [
-      {{"metric": "e.g. WFE estimates", "values": {{"FY2025": "...", "FY2026": "...", "FY2027": "..."}}}},
-      {{"metric": "e.g. volume growth", "values": {{"FY2025": "...", "FY2026": "...", "FY2027": "..."}}}}
+      {{"metric": "e.g. WFE estimates", "values": {{"{fy0}": "...", "{fy1}": "...", "{fy2}": "..."}}}},
+      {{"metric": "e.g. volume growth", "values": {{"{fy0}": "...", "{fy1}": "...", "{fy2}": "..."}}}}
     ]
   }},
   "key_themes": [
@@ -153,11 +160,32 @@ Analyse this document and respond with ONLY a JSON object (no markdown, no pream
   "notable_changes": [
     "description of any estimate changes, rating changes, or view changes from previous"
   ],
+  "segment_estimates": [
+    {{"segment": "business segment or product line, e.g. HBM, Foundry, Services", "metric": "revenue/margin/units/ASP/share", "values": {{"{fy0}": "...", "{fy1}": "..."}}, "unit": "unit if applicable"}}
+  ],
+  "valuation": {{
+    "methodology": "exactly how the target price is derived, e.g. 18x {fy1} EPS, DCF with x% WACC, SOTP",
+    "multiple": "the multiple(s) used, with the metric and year they apply to",
+    "bear_case_target": number_or_null,
+    "base_case_target": number_or_null,
+    "bull_case_target": number_or_null,
+    "key_assumptions": ["the load-bearing assumptions behind the valuation"]
+  }},
+  "industry_assumptions": [
+    {{"metric": "industry-level number the author relies on, e.g. CY2026 WFE, HBM bit supply growth, AI server unit shipments", "value": "...", "period": "...", "basis": "where the number comes from / the author's reasoning"}}
+  ],
+  "primer_concepts": [
+    {{"concept": "technology, supply-chain, or industry-structure concept the document explains, e.g. CoWoS-L vs CoWoS-S", "explanation": "self-contained explanation a generalist investor can follow", "why_it_matters": "the investment relevance", "related_tickers": ["..."]}}
+  ],
   "detailed_summary": "A comprehensive 500-1000 word summary of the document covering all key arguments, data points, and conclusions. Be extremely specific with numbers.",
   "analysis_report": "SEE INSTRUCTIONS BELOW"
 }}
 
 For any field where the information is not available in the document, use null. Extract as many specific numbers, percentages, and data points as possible.
+
+Forecast periods: the year labels above are indicative — use the fiscal-year labels the document itself forecasts, and include EVERY forecast year it provides (including beyond {fy2}). If the document gives quarterly estimates, add them as periods too (e.g. "2Q{fy1}").
+
+primer_concepts: capture educational/structural content — technology explainers, supply-chain maps, competitive dynamics, industry mechanics — that builds durable understanding beyond this document's estimates. Be generous with these for primer-style documents; use an empty list only when the document truly contains none.
 """ + ANALYSIS_REPORT_ADDENDUM + """
 The research document is provided between <document> tags in the system context. Extract the structured JSON only.
 """

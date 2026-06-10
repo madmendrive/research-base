@@ -220,6 +220,8 @@ def _build_thematic_extraction_prompt(config):
         for lt in config.get("linked_tickers", [])
     )
     metrics_text = ", ".join(config.get("key_metrics", []))
+    year = datetime.now().year
+    cy0, cy1, cy2, cy3 = (f"CY{year - 1}", f"CY{year}", f"CY{year + 1}", f"CY{year + 2}")
 
     return f"""\
 You are a buy-side equity research analyst at a macro hedge fund. I'm giving you a thematic/sector research document about {theme_name}: {description}.
@@ -240,17 +242,17 @@ Analyse this document and respond with ONLY a JSON object (no markdown, no pream
   }},
   "theme_estimates": {{
     "metric_name": {{
-      "CY2024": {{"value": "...", "source_detail": "..."}},
-      "CY2025": {{"value": "...", "source_detail": "..."}},
-      "CY2026": {{"value": "...", "source_detail": "..."}},
-      "CY2027": {{"value": "...", "source_detail": "..."}}
+      "{cy0}": {{"value": "...", "source_detail": "..."}},
+      "{cy1}": {{"value": "...", "source_detail": "..."}},
+      "{cy2}": {{"value": "...", "source_detail": "..."}},
+      "{cy3}": {{"value": "...", "source_detail": "..."}}
     }}
   }},
   "company_specific_mentions": {{
     "TICKER": {{
       "mentions": ["direct quotes or paraphrased mentions of this company"],
       "implied_estimates": {{
-        "revenue_from_theme": {{"CY2025": "...", "CY2026": "..."}},
+        "revenue_from_theme": {{"{cy1}": "...", "{cy2}": "..."}},
         "market_share": "...",
         "other": {{}}
       }},
@@ -274,12 +276,22 @@ Analyse this document and respond with ONLY a JSON object (no markdown, no pream
       "author_lean": "bull/bear/neutral"
     }}
   ],
+  "industry_assumptions": [
+    {{"metric": "industry-level number the author relies on, e.g. {cy2} WFE, HBM bit supply growth", "value": "...", "period": "...", "basis": "where the number comes from / the author's reasoning"}}
+  ],
+  "primer_concepts": [
+    {{"concept": "technology, supply-chain, or industry-structure concept the document explains", "explanation": "self-contained explanation a generalist investor can follow", "why_it_matters": "the investment relevance", "related_tickers": ["..."]}}
+  ],
   "detailed_summary": "Comprehensive 500-1000 word summary...",
   "analysis_report": "SEE INSTRUCTIONS BELOW"
 }}
 
 For companies not mentioned in the document, omit them from company_specific_mentions.
 For metrics not available, use null. Extract as many specific numbers as possible.
+
+Forecast periods: the year labels above are indicative — use the period labels the document itself provides, and include every forecast period it gives.
+
+primer_concepts: capture educational/structural content — technology explainers, supply-chain maps, competitive dynamics, industry mechanics — that builds durable understanding beyond this document's estimates. Be generous with these for primer-style documents; use an empty list only when the document truly contains none.
 """ + ANALYSIS_REPORT_ADDENDUM + """
 The research document is provided between <document> tags in the system context. Extract the structured JSON only.
 """

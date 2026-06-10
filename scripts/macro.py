@@ -204,6 +204,9 @@ Analyse this document and respond with ONLY a JSON object (no markdown, no pream
   "recommended_trades_or_positioning": [
     {{"trade": "Long 10Y UST", "rationale": "..."}}
   ],
+  "primer_concepts": [
+    {{"concept": "framework, mechanism, or structural concept the document explains, e.g. how the BoJ's YCC exit transmits to USDJPY", "explanation": "self-contained explanation a generalist investor can follow", "why_it_matters": "the investment relevance", "related_tickers": ["..."]}}
+  ],
   "detailed_summary": "Comprehensive 500-1000 word summary covering all key arguments, data points, and conclusions. Be extremely specific with numbers.",
   "analysis_report": "SEE INSTRUCTIONS BELOW"
 }}

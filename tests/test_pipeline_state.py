@@ -54,6 +54,58 @@ class SweeperSeesLiveBulkStateTests(unittest.TestCase):
                 self.assertEqual(sweeper._bulk_hashes(), {"abc123", "def456"})
 
 
+class SchemaEnrichmentTests(unittest.TestCase):
+    def test_dynamic_forecast_years_in_extraction_prompt(self):
+        from datetime import datetime
+
+        from scripts.research import _build_extraction_prompt
+
+        prompt = _build_extraction_prompt("Apple", "AAPL")
+        year = datetime.now().year
+        self.assertIn(f"FY{year}", prompt)
+        self.assertIn(f"FY{year + 2}", prompt)
+        self.assertNotIn("FY2025\"", prompt if year != 2025 else "")
+        for field in ("segment_estimates", "valuation", "industry_assumptions", "primer_concepts"):
+            self.assertIn(field, prompt)
+
+    def test_enrichment_fields_reach_structured_memory(self):
+        import sqlite3
+
+        from scripts import kb
+        from scripts.research_memory import _ingest_enrichment, init_schema
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        init_schema(conn)
+        scope = {"corpus_type": "single_name", "subject_type": "ticker", "subject": "AAPL"}
+        meta = {"author": "Analyst", "publisher": "Firm", "published_at": "2026-06-01"}
+        payload = {
+            "segment_estimates": [
+                {"segment": "Services", "metric": "revenue", "values": {"FY2026": 120}, "unit": "USD billions"}
+            ],
+            "valuation": {
+                "methodology": "25x FY2027 EPS",
+                "base_case_target": 280,
+                "key_assumptions": ["Services grows 15%"],
+            },
+            "industry_assumptions": [
+                {"metric": "CY2026 WFE", "value": "$135bn", "period": "CY2026", "basis": "bottom-up fab tracker"}
+            ],
+            "primer_concepts": [
+                {"concept": "CoWoS-L", "explanation": "Large-interposer packaging.", "why_it_matters": "AI GPU capacity gate."}
+            ],
+        }
+        _ingest_enrichment(conn, "test:src", scope, meta, payload)
+        estimates = {r["metric"] for r in conn.execute("SELECT metric FROM research_estimates")}
+        self.assertIn("Services.revenue", estimates)
+        self.assertIn("valuation.methodology", estimates)
+        self.assertIn("valuation.base_case_target", estimates)
+        self.assertIn("CY2026 WFE", estimates)
+        views = {(r["theme"], r["category"]) for r in conn.execute("SELECT theme, category FROM research_views")}
+        self.assertIn(("CoWoS-L", "primer_concept"), views)
+        self.assertIn(("valuation assumptions", "valuation"), views)
+
+
 class BulkIngestSeesSweeperStateTests(unittest.TestCase):
     def test_sweeper_hashes_consulted(self):
         with tempfile.TemporaryDirectory() as tmp:
