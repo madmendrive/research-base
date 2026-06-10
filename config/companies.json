@@ -1748,5 +1748,10 @@
     "name": "Volex",
     "market": "UK",
     "ir_url": "https://www.volex.com/investors/"
+  },
+  "2476 HK": {
+    "name": "Victory Giant Technology (H-share)",
+    "market": "HK",
+    "ir_url": ""
   }
 }
