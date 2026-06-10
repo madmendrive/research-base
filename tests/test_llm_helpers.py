@@ -267,7 +267,9 @@ class OpenAiPdfInputTests(unittest.TestCase):
         inline = _build_extraction_prompt(triage, "DOCBODY")
         self.assertIn("<document>\nDOCBODY\n</document>", inline)
         native = _build_extraction_prompt(triage, "", include_text=False)
-        self.assertNotIn("<document>", native)
+        # The base builders' tail mentions "<document> tags" as prose; assert no
+        # actual inline document block instead.
+        self.assertNotIn("</document>", native)
         self.assertIn("attached to this request as a PDF", native)
 
 
