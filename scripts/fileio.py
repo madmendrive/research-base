@@ -73,6 +73,13 @@ def extract_file_text(path: Path, *, max_chars: int = MAX_TEXT_CHARS) -> str:
     raise RuntimeError(f"Unsupported file type: {suffix}")
 
 
+def pdf_page_count(path: Path) -> int:
+    import pdfplumber
+
+    with pdfplumber.open(path) as pdf:
+        return len(pdf.pages)
+
+
 def write_json_atomic(path: Path, data, *, indent: int = 2, trailing_newline: bool = True) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

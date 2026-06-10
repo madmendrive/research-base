@@ -195,6 +195,45 @@ class CallApiTests(unittest.TestCase):
         self.assertNotIn("system", client.create_calls[0])
 
 
+class NativePdfPayloadTests(unittest.TestCase):
+    def test_non_pdf_falls_back_to_text_system_block(self):
+        from scripts.llm_provider import document_message_payload
+
+        messages, system = document_message_payload("prompt", pdf_path=Path("note.txt"), text="body")
+        self.assertEqual(messages, [{"role": "user", "content": "prompt"}])
+        self.assertIn("<document>\nbody\n</document>", system[0]["text"])
+
+    def test_env_kill_switch_disables_native_mode(self):
+        from scripts.llm_provider import native_pdf_eligible
+
+        with mock.patch.dict("os.environ", {"PDF_NATIVE_EXTRACTION": "0"}):
+            self.assertFalse(native_pdf_eligible(Path("doc.pdf")))
+
+    def test_eligible_pdf_becomes_cached_document_block(self):
+        import scripts.llm_provider as lp
+
+        pdf = Path(tempfile.mkdtemp()) / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        with mock.patch("scripts.fileio.pdf_page_count", return_value=42):
+            messages, system = lp.document_message_payload("prompt", pdf_path=pdf, text="body")
+        self.assertIsNone(system)
+        content = messages[0]["content"]
+        self.assertEqual(content[0]["type"], "document")
+        self.assertEqual(content[0]["source"]["media_type"], "application/pdf")
+        self.assertEqual(content[0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(content[1], {"type": "text", "text": "prompt"})
+
+    def test_oversized_pdf_falls_back(self):
+        import scripts.llm_provider as lp
+
+        pdf = Path(tempfile.mkdtemp()) / "big.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        with mock.patch("scripts.fileio.pdf_page_count", return_value=250):
+            messages, system = lp.document_message_payload("prompt", pdf_path=pdf, text="body")
+        self.assertIsNotNone(system)
+        self.assertEqual(messages, [{"role": "user", "content": "prompt"}])
+
+
 class CachedDocumentBlockTests(unittest.TestCase):
     def test_block_shape_and_cache_marker(self):
         from scripts.llm_provider import cached_document_block

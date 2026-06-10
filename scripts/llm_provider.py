@@ -59,6 +59,57 @@ def cached_document_block(text: str) -> list[dict]:
     }]
 
 
+# Anthropic native-PDF limits: 100 pages / 32MB per request. Native mode lets
+# the model read tables, charts, and exhibits that pdfplumber text extraction
+# loses — that's where most of the numbers in broker primers live.
+PDF_NATIVE_MAX_PAGES = 100
+PDF_NATIVE_MAX_BYTES = 30_000_000
+
+
+def native_pdf_eligible(path) -> bool:
+    from pathlib import Path as _Path
+
+    path = _Path(path)
+    if path.suffix.lower() != ".pdf":
+        return False
+    if os.environ.get("PDF_NATIVE_EXTRACTION", "1").strip().lower() in {"0", "false", "no"}:
+        return False
+    try:
+        if path.stat().st_size > PDF_NATIVE_MAX_BYTES:
+            return False
+        from scripts.fileio import pdf_page_count
+
+        return 0 < pdf_page_count(path) <= PDF_NATIVE_MAX_PAGES
+    except Exception:
+        return False
+
+
+def document_message_payload(prompt: str, *, pdf_path=None, text: str | None = None):
+    """(messages, system) for an extraction call over a research document.
+
+    Native PDF mode when eligible — the model reads the actual PDF (text plus
+    tables/charts/exhibits) as a cached document block. Otherwise the
+    extracted text rides in a cached system block. Either way the document
+    bytes are identical across the store + cross-cut calls for one file, so
+    they share a prompt-cache entry.
+    """
+    if pdf_path is not None and native_pdf_eligible(pdf_path):
+        import base64
+        from pathlib import Path as _Path
+
+        data = base64.standard_b64encode(_Path(pdf_path).read_bytes()).decode("ascii")
+        content = [
+            {
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": data},
+                "cache_control": {"type": "ephemeral"},
+            },
+            {"type": "text", "text": prompt},
+        ]
+        return [{"role": "user", "content": content}], None
+    return [{"role": "user", "content": prompt}], cached_document_block(text or "")
+
+
 def parse_json_loose(text: str):
     """Parse JSON from a model response, stripping markdown code fences.
 

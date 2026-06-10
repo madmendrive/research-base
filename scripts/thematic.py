@@ -11,7 +11,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from scripts.fileio import extract_file_text, write_json_atomic
-from scripts.llm_provider import cached_document_block, call_api, parse_json_loose
+from scripts.llm_provider import cached_document_block, call_api, document_message_payload, parse_json_loose
 from scripts.analysis_report import (
     ANALYSIS_REPORT_INSTRUCTIONS as ANALYSIS_REPORT_ADDENDUM,
     build_second_pass_prompt,
@@ -293,7 +293,7 @@ Forecast periods: the year labels above are indicative — use the period labels
 
 primer_concepts: capture educational/structural content — technology explainers, supply-chain maps, competitive dynamics, industry mechanics — that builds durable understanding beyond this document's estimates. Be generous with these for primer-style documents; use an empty list only when the document truly contains none.
 """ + ANALYSIS_REPORT_ADDENDUM + """
-The research document is provided between <document> tags in the system context. Extract the structured JSON only.
+The research document is provided with this request — either attached as a PDF or between <document> tags in the system context. Analyse its text AND any tables, charts, and exhibits; exhibit numbers matter as much as prose. Extract the structured JSON only.
 """
 
 
@@ -360,8 +360,9 @@ def store_thematic(theme, file_paths):
         # c. Send to Claude
         click.echo("Analysing with Claude API...")
         prompt = _build_thematic_extraction_prompt(config)
-        raw = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                        model=EXTRACTION_MODEL, system=cached_document_block(text))
+        messages, doc_system = document_message_payload(prompt, pdf_path=src, text=text)
+        raw = _call_api(client, messages, max_tokens=16384,
+                        model=EXTRACTION_MODEL, system=doc_system)
 
         # d. Parse and save
         note_data = _parse_json_response(raw)
@@ -760,8 +761,9 @@ def analyse_thematic(theme, file_path):
 
     click.echo("Extracting structured data from thematic note...")
     extraction_prompt = _build_thematic_extraction_prompt(config)
-    raw_extraction = _call_api(client, [{"role": "user", "content": extraction_prompt}], max_tokens=16384,
-                               model=EXTRACTION_MODEL, system=cached_document_block(text))
+    messages, doc_system = document_message_payload(extraction_prompt, pdf_path=src, text=text)
+    raw_extraction = _call_api(client, messages, max_tokens=16384,
+                               model=EXTRACTION_MODEL, system=doc_system)
     new_note = _parse_json_response(raw_extraction)
 
     # b. Load theme summary

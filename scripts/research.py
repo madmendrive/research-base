@@ -12,7 +12,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from scripts.fileio import extract_file_text, write_json_atomic
-from scripts.llm_provider import cached_document_block, call_api, parse_json_loose
+from scripts.llm_provider import cached_document_block, call_api, document_message_payload, parse_json_loose
 from scripts.analysis_report import (
     ANALYSIS_REPORT_INSTRUCTIONS as ANALYSIS_REPORT_ADDENDUM,
     build_second_pass_prompt,
@@ -187,7 +187,7 @@ Forecast periods: the year labels above are indicative — use the fiscal-year l
 
 primer_concepts: capture educational/structural content — technology explainers, supply-chain maps, competitive dynamics, industry mechanics — that builds durable understanding beyond this document's estimates. Be generous with these for primer-style documents; use an empty list only when the document truly contains none.
 """ + ANALYSIS_REPORT_ADDENDUM + """
-The research document is provided between <document> tags in the system context. Extract the structured JSON only.
+The research document is provided with this request — either attached as a PDF or between <document> tags in the system context. Analyse its text AND any tables, charts, and exhibits; exhibit numbers matter as much as prose. Extract the structured JSON only.
 """
 
 
@@ -225,11 +225,11 @@ def store_research(ticker, file_path):
     click.echo("Analysing with Claude API...")
     client = Anthropic(max_retries=3, timeout=600.0)
     prompt = _build_extraction_prompt(company_name, ticker)
-    doc_block = cached_document_block(text)
+    messages, doc_system = document_message_payload(prompt, pdf_path=src, text=text)
     note_data = None
     for json_attempt in range(3):
-        raw = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                        model=EXTRACTION_MODEL, system=doc_block)
+        raw = _call_api(client, messages, max_tokens=16384,
+                        model=EXTRACTION_MODEL, system=doc_system)
         try:
             note_data = _parse_json_response(raw)
             break
@@ -838,8 +838,9 @@ def analyse_research(ticker, file_path=None, headline=None):
 
     click.echo("Extracting structured data from new research...")
     extraction_prompt = _build_extraction_prompt(company_name, ticker)
-    raw_extraction = _call_api(client, [{"role": "user", "content": extraction_prompt}], max_tokens=16384,
-                               model=EXTRACTION_MODEL, system=cached_document_block(text))
+    messages, doc_system = document_message_payload(extraction_prompt, pdf_path=src, text=text)
+    raw_extraction = _call_api(client, messages, max_tokens=16384,
+                               model=EXTRACTION_MODEL, system=doc_system)
     new_research = _parse_json_response(raw_extraction)
 
     # b/c. Build comparative analysis prompt. The raw document excerpt rides in a
