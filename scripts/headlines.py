@@ -1448,18 +1448,19 @@ Headlines:
 {chr(10).join(lines)}
 """
     try:
-        from scripts.llm_provider import get_client
+        from scripts.llm_provider import call_api, get_client
 
         client = get_client("anthropic", timeout=90.0, max_retries=2)
-        resp = client.messages.create(
+        raw = call_api(
+            client,
+            [{"role": "user", "content": prompt}],
+            max_tokens=3000,
             model=(
                 os.environ.get("HEADLINE_ANTHROPIC_MODEL")
                 or "claude-sonnet-4-6"
             ),
-            max_tokens=3000,
-            messages=[{"role": "user", "content": prompt}],
         )
-        payload = _extract_json_object(resp.content[0].text)
+        payload = _extract_json_object(raw)
         rows = []
         valid_ranks = {int(item["rank"]) for item in items if item.get("rank")}
         for row in payload.get("items", []):
@@ -1535,18 +1536,19 @@ Rules:
 Rows:
 {json.dumps(payload, ensure_ascii=False, indent=2)}
 """
-    from scripts.llm_provider import get_client
+    from scripts.llm_provider import call_api, get_client
 
     client = get_client("anthropic", timeout=60.0, max_retries=1)
-    resp = client.messages.create(
+    raw = call_api(
+        client,
+        [{"role": "user", "content": prompt}],
+        max_tokens=3000,
         model=(
             os.environ.get("HEADLINE_ANTHROPIC_MODEL")
             or "claude-sonnet-4-6"
         ),
-        max_tokens=3000,
-        messages=[{"role": "user", "content": prompt}],
     )
-    result = _extract_json_object(resp.content[0].text)
+    result = _extract_json_object(raw)
     valid_ranks = {int(item["rank"]) for item in items if item.get("rank")}
     out = []
     for row in result.get("items", []):

@@ -132,18 +132,22 @@ MAX_TOKENS_ESCALATION_CAP = 32_768
 
 def call_api(client, messages, max_tokens=8192, system=None, return_response=False,
              model=None, default_model="claude-opus-4-7"):
-    """Anthropic call with transient-error retry + streaming fallback.
+    """Anthropic call, always streamed, with transient retry and truncation
+    escalation. Shared by research/macro/thematic and the analyst.
 
-    Shared by research/macro/thematic (was triplicated there).
+    Streaming is mandatory on this machine: Norton's TLS proxy kills HTTPS
+    connections that are silent for ~60s, and a non-streaming call returns no
+    bytes until generation completes — so any response that takes longer than
+    a minute to generate fails with APIConnectionError. SSE keeps bytes
+    flowing and survives.
 
     system: list of content blocks (use cached_system_block for prompt
             caching) or a plain string.
-    return_response: return the raw response object instead of just the text
+    return_response: return the final message object instead of just the text
                      (so callers can inspect usage metadata).
-
-    Output truncation (stop_reason == max_tokens) on either the create or the
-    streaming path retries with doubled max_tokens, capped — a truncated
-    response would otherwise just fail JSON parsing downstream.
+    Output truncation (stop_reason == max_tokens) retries with doubled
+    max_tokens, capped — a truncated response would otherwise just fail JSON
+    parsing downstream.
     """
     chosen_model = model or default_model
     current_max = max_tokens
@@ -165,48 +169,29 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
             }
             if system is not None:
                 kwargs["system"] = system
-            response = client.messages.create(**kwargs)
-            if getattr(response, "stop_reason", None) == "max_tokens" and attempt < 2:
+            chunks = []
+            with client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    chunks.append(text)
+                final = stream.get_final_message()
+            if final.stop_reason == "max_tokens" and attempt < 2:
                 _escalate()
                 continue
+            if final.stop_reason not in ("end_turn", "stop_sequence"):
+                print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
+                continue
             if return_response:
-                return response
-            return response.content[0].text
+                return final
+            return "".join(chunks)
         except Exception as e:
             err_str = str(e).lower()
-            if "overloaded" in err_str or "connection" in err_str or "529" in err_str or "disconnected" in err_str:
-                if attempt < 2:
-                    wait = 5 * (attempt + 1)
-                    print(f"  API transient error, retrying in {wait}s (streaming)...")
-                    time.sleep(wait)
-                    # Fall back to streaming to keep the connection alive
-                    try:
-                        stream_kwargs = {
-                            "model": chosen_model,
-                            "max_tokens": current_max,
-                            "messages": messages,
-                        }
-                        if system is not None:
-                            stream_kwargs["system"] = system
-                        chunks = []
-                        with client.messages.stream(**stream_kwargs) as stream:
-                            for text in stream.text_stream:
-                                chunks.append(text)
-                            final = stream.get_final_message()
-                        # Truncated streams must not return partial chunks — escalate
-                        # the budget and fall through to the next retry.
-                        if final.stop_reason == "max_tokens":
-                            _escalate()
-                            continue
-                        if final.stop_reason not in ("end_turn", "stop_sequence"):
-                            print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
-                            continue
-                        if return_response:
-                            return final
-                        return "".join(chunks)
-                    except Exception as inner:
-                        print(f"  streaming retry failed: {inner}, trying again...")
-                        continue
+            transient = ("overloaded" in err_str or "connection" in err_str
+                         or "529" in err_str or "disconnected" in err_str)
+            if transient and attempt < 2:
+                wait = 5 * (attempt + 1)
+                print(f"  API transient error, retrying in {wait}s...")
+                time.sleep(wait)
+                continue
             raise
     raise RuntimeError("API call failed after 3 attempts")
 
@@ -358,8 +343,10 @@ def complete_json(prompt: str, *, config: LLMConfig, system: str | None = None,
                 }
                 if system:
                     kwargs["system"] = cached_system_block(system)
-                response = client.messages.create(**kwargs)
-                return parse_json_response(response.content[0].text)
+                # Stream so long extractions survive Norton's ~60s idle kill.
+                with client.messages.stream(**kwargs) as stream:
+                    text = "".join(stream.text_stream)
+                return parse_json_response(text)
 
             raise LLMProviderError(f"Unsupported LLM provider: {config.provider}")
         except Exception as e:
