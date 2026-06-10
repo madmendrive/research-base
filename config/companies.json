@@ -1587,5 +1587,13 @@
   "Hyundai": {
     "name": "Hyundai Motor Group",
     "market": "KR"
+  },
+  "GLOBALFOUNDRIES_PLACEHOLDER": {
+    "name": "GlobalFoundries",
+    "market": "US"
+  },
+  "KIOXIA": {
+    "name": "Kioxia Holdings Corp",
+    "market": "JP"
   }
 }

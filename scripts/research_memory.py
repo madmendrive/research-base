@@ -193,12 +193,18 @@ def init_schema(conn: sqlite3.Connection) -> None:
 def _iter_note_json_files() -> Iterable[Path]:
     if not DATA_DIR.exists():
         return []
-    for path in DATA_DIR.glob("**/notes/*.json"):
-        if "_kb" in path.parts:
-            continue
-        if path.name.endswith("_state.json"):
-            continue
-        yield path
+    patterns = ("**/notes/*.json", "_email/**/*.json")
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for path in DATA_DIR.glob(pattern):
+            if path in seen:
+                continue
+            seen.add(path)
+            if "_kb" in path.parts:
+                continue
+            if path.name.endswith("_state.json"):
+                continue
+            yield path
 
 
 def _source_uri(path: Path) -> str:
@@ -219,6 +225,17 @@ def _infer_scope(path: Path, payload: dict) -> dict:
     rel = path.resolve().relative_to(DATA_DIR.resolve())
     parts = rel.parts
     meta = payload.get("metadata") or {}
+    explicit = meta.get("memory_scope") or payload.get("memory_scope")
+    if isinstance(explicit, dict):
+        corpus_type = explicit.get("corpus_type")
+        subject_type = explicit.get("subject_type")
+        subject = explicit.get("subject")
+        if corpus_type and subject_type and subject:
+            return {
+                "corpus_type": str(corpus_type),
+                "subject_type": str(subject_type),
+                "subject": canonicalize_subject(str(subject_type), str(subject)) or str(subject),
+            }
     if len(parts) >= 4 and parts[0] == "Thematic":
         return {"corpus_type": "thematic", "subject_type": "theme", "subject": parts[1]}
     if len(parts) >= 5 and parts[0] in {"Macro", "Semis"} and parts[1] == "authors":

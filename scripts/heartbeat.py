@@ -19,12 +19,13 @@ DEFAULT_AGENDA = {
     "timezone": "Asia/Hong_Kong",
     "folder": r"C:\Users\Owner\Downloads\research-inbox",
     "folder_sweep_times": ["08:30", "20:30"],
-    "email_sweep_times": ["08:30", "20:30"],
+    "email_sweep_times": ["01:00", "13:00"],
     "headline_sweep_times": ["02:00", "08:00", "14:00", "20:00"],
     "headline_interval_hours": 6,
     "notify": True,
     "folder_analyse": False,
     "email_analyse_attachments": False,
+    "email_extract_research": True,
 }
 
 
@@ -186,6 +187,7 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                 {
                     "notify": notify,
                     "analyse_attachments": bool(agenda.get("email_analyse_attachments", False)),
+                    "extract_research": bool(agenda.get("email_extract_research", True)),
                 },
                 dedupe_key=f"email_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )

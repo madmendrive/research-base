@@ -54,6 +54,8 @@ EXCLUDE_SUBJECTS = {
 class StudyConfig:
     scope: str = "all"
     topics: tuple[str, ...] = DEFAULT_TOPICS
+    targets: tuple[str, ...] = ()
+    since_hours: float = 0.0
     max_cost: float = 30.0
     limit: int = 0
     provider: str = "anthropic"
@@ -141,8 +143,77 @@ def _topic_score(text: str, topics: tuple[str, ...]) -> int:
     return score
 
 
+def _normalise_target_filter(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _target_matches_filter(key: str, subject: str, subject_type: str, filters: set[str]) -> bool:
+    if not filters:
+        return True
+    key_n = _normalise_target_filter(key)
+    subject_n = _normalise_target_filter(subject)
+    typed_subject_n = _normalise_target_filter(f"{subject_type}:{subject}")
+    return key_n in filters or subject_n in filters or typed_subject_n in filters
+
+
+def _path_mtime(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        path = Path(value)
+        if not path.exists():
+            return None
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _source_file_mtime(row: dict[str, Any]) -> float | None:
+    mtimes = [
+        mtime
+        for mtime in (
+            _path_mtime(row.get("json_path")),
+            _path_mtime(row.get("source_path")),
+        )
+        if mtime is not None
+    ]
+    return max(mtimes) if mtimes else None
+
+
+def _recent_source_mtimes(hours: float) -> dict[str, float]:
+    if not hours or hours <= 0:
+        return {}
+    cutoff = time.time() - (hours * 3600)
+    conn = kb.connect()
+    try:
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT source_uri, json_path, source_path FROM research_sources"
+            )
+        ]
+    finally:
+        conn.close()
+
+    recent: dict[str, float] = {}
+    for row in rows:
+        mtime = _source_file_mtime(row)
+        if mtime is not None and mtime >= cutoff:
+            recent[str(row["source_uri"])] = mtime
+    return recent
+
+
 def _select_targets(config: StudyConfig, state: dict[str, Any]) -> list[dict[str, Any]]:
     where_scope, params = _scope_where(config.scope)
+    target_filters = {_normalise_target_filter(t) for t in config.targets if str(t).strip()}
+    recent_sources = _recent_source_mtimes(config.since_hours)
+    where_recent = ""
+    recent_params: list[str] = []
+    if config.since_hours and config.since_hours > 0:
+        if not recent_sources:
+            return []
+        recent_params = list(recent_sources.keys())
+        where_recent = f"AND source_uri IN ({','.join('?' for _ in recent_params)})"
     conn = kb.connect()
     try:
         rows = [
@@ -179,11 +250,12 @@ def _select_targets(config: StudyConfig, state: dict[str, Any]) -> list[dict[str
                 WHERE lower(subject) NOT IN ({",".join("?" for _ in EXCLUDE_SUBJECTS)})
                   AND subject_type IN ('ticker', 'theme', 'single_name')
                   {where_scope}
+                  {where_recent}
                 GROUP BY subject_type, subject
                 HAVING source_count >= 1
                 ORDER BY source_count DESC, latest_date DESC
                 """,
-                [*EXCLUDE_SUBJECTS, *params],
+                [*EXCLUDE_SUBJECTS, *params, *recent_params],
             )
         ]
     finally:
@@ -193,25 +265,29 @@ def _select_targets(config: StudyConfig, state: dict[str, Any]) -> list[dict[str
     targets: list[dict[str, Any]] = []
     for row in rows:
         subject = str(row.get("subject") or "").strip()
+        subject_type = str(row.get("subject_type") or "").strip()
         if not subject or subject.lower() in EXCLUDE_SUBJECTS:
             continue
-        key = f"{row.get('subject_type')}:{subject}"
-        if not config.force and studied.get(key):
+        key = f"{subject_type}:{subject}"
+        if not _target_matches_filter(key, subject, subject_type, target_filters):
+            continue
+        if not config.force and not config.since_hours and not target_filters and studied.get(key):
             continue
         haystack = " ".join(
             str(row.get(k) or "")
             for k in ("subject", "subject_type", "publishers", "contexts")
         )
         score = _topic_score(haystack, config.topics)
-        if config.topics and score <= 0:
+        if config.topics and score <= 0 and not target_filters:
             continue
         targets.append({
             "key": key,
-            "subject_type": row.get("subject_type"),
+            "subject_type": subject_type,
             "subject": subject,
             "source_count": int(row.get("source_count") or 0),
             "latest_date": row.get("latest_date"),
             "topic_score": score,
+            "recent_window_hours": config.since_hours,
         })
     targets.sort(key=lambda x: (x["topic_score"], x["source_count"], x.get("latest_date") or ""), reverse=True)
     if config.limit:

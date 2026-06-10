@@ -5,6 +5,7 @@ models/
 # Environment
 .env
 .venv/
+config/gmail_oauth_client_secret*.json
 
 # Python
 __pycache__/

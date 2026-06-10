@@ -612,12 +612,45 @@ def import_skills_cmd(source_dir, dry_run, force):
 @cli.command("email-sweep")
 @click.option("--once", is_flag=True, help="Compatibility flag; email sweep is one-shot.")
 @click.option("--notify", is_flag=True, help="Send Telegram summary if new messages are found.")
-@click.option("--limit", default=50, show_default=True, help="Inspect at most N latest IMAP messages.")
+@click.option("--limit", default=50, show_default=True, help="Inspect at most N latest mailbox messages.")
 @click.option("--analyse-attachments", is_flag=True, help="Send full analyst read-throughs for PDF attachments.")
-def email_sweep_cmd(once, notify, limit, analyse_attachments):
-    """Sweep the configured IMAP mailbox for research emails."""
+@click.option("--no-extract-research", is_flag=True, help="Index emails only; skip structured research extraction.")
+@click.option("--provider", default=None, type=click.Choice(["gmail_api", "imap"], case_sensitive=False),
+              help="Override RESEARCH_EMAIL_PROVIDER for this run.")
+def email_sweep_cmd(once, notify, limit, analyse_attachments, no_extract_research, provider):
+    """Sweep the configured research mailbox for research emails."""
+    import os
     from scripts.email_sweep import email_sweep
-    stats = email_sweep(notify=notify, limit=limit, analyse_attachments=analyse_attachments)
+    if provider:
+        os.environ["RESEARCH_EMAIL_PROVIDER"] = provider
+    stats = email_sweep(
+        notify=notify,
+        limit=limit,
+        analyse_attachments=analyse_attachments,
+        extract_research=not no_extract_research,
+    )
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
+@cli.command("gmail-auth")
+@click.option("--client-secret", default=None,
+              help="Path to Google Desktop OAuth client secret JSON.")
+@click.option("--token-path", default=None,
+              help="Where to save the Gmail OAuth token JSON.")
+@click.option("--port", default=0, show_default=True,
+              help="Local callback port; 0 lets Google auth choose one.")
+def gmail_auth_cmd(client_secret, token_path, port):
+    """Authorize Gmail API access and save a local OAuth token."""
+    from scripts.email_sweep import gmail_authorize
+
+    try:
+        stats = gmail_authorize(
+            client_secret_path=client_secret,
+            token_path=token_path,
+            port=port,
+        )
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
@@ -670,6 +703,10 @@ def ask_cmd(question, sources, limit):
 @click.option("--topics", default="semiconductor,semis,memory,dram,nand,hbm,spe,wfe,ai infrastructure,electronic components",
               show_default=True,
               help="Comma-separated topic filters used to prioritize/select study targets.")
+@click.option("--targets", default="",
+              help="Comma-separated exact targets to study, e.g. 'ticker:MU,theme:AI Infrastructure'.")
+@click.option("--since-hours", default=0.0, show_default=True, type=float,
+              help="Only study targets touched by source/extraction files modified in the last N hours.")
 @click.option("--max-cost", default=30.0, show_default=True, type=float,
               help="Estimated API spend ceiling in USD.")
 @click.option("--limit", default=0, type=int,
@@ -688,7 +725,7 @@ def ask_cmd(question, sources, limit):
               help="Plan and estimate cost without making model calls.")
 @click.option("--no-embed", is_flag=True,
               help="Write dossiers and FTS index only; skip embedding creation.")
-def study_cmd(scope, topics, max_cost, limit, provider, model, max_output_tokens, timeout, force, dry_run, no_embed):
+def study_cmd(scope, topics, targets, since_hours, max_cost, limit, provider, model, max_output_tokens, timeout, force, dry_run, no_embed):
     """Study the local research base and write durable company/theme dossiers."""
     import os
     from scripts.study import StudyConfig, run_study
@@ -717,9 +754,12 @@ def study_cmd(scope, topics, max_cost, limit, provider, model, max_output_tokens
                 or "claude-opus-4-7"
             )
     topic_tuple = tuple(t.strip() for t in (topics or "").split(",") if t.strip())
+    target_tuple = tuple(t.strip() for t in (targets or "").split(",") if t.strip())
     config = StudyConfig(
         scope=scope,
         topics=topic_tuple,
+        targets=target_tuple,
+        since_hours=since_hours,
         max_cost=max_cost,
         limit=limit,
         provider=provider,

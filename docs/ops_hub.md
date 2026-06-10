@@ -37,7 +37,30 @@ Fill `.env` with:
 - `OPENAI_API_KEY` for KB embeddings.
 - Telegram bot token and allowlisted user IDs.
 - EDINET/DART keys if using those downloaders.
-- IMAP settings for the research/Substack mailbox.
+- Gmail API OAuth settings for the research/Substack mailbox.
+
+### Gmail Research Mailbox
+
+Preferred setup is Gmail API OAuth, not IMAP passwords:
+
+1. Create or choose the dedicated Gmail account.
+2. In Google Cloud Console, create a project and enable the Gmail API.
+3. Configure the OAuth consent screen and add your Gmail address as a test user if the app is in testing mode.
+4. Create an OAuth client ID with application type `Desktop app`.
+5. Download the client JSON and save it as `config/gmail_oauth_client_secret.json`.
+6. Set these in `.env`:
+
+```env
+RESEARCH_EMAIL_PROVIDER=gmail_api
+GMAIL_OAUTH_CLIENT_SECRET=config/gmail_oauth_client_secret.json
+GMAIL_OAUTH_TOKEN=data/_secrets/gmail_token.json
+GMAIL_QUERY=in:inbox
+```
+
+7. Run `python main.py gmail-auth` once and approve read-only Gmail access in the browser.
+
+The token is saved locally under `data/_secrets/` and is ignored by Git. The scope is Gmail read-only.
+IMAP app-password mode remains available by setting `RESEARCH_EMAIL_PROVIDER=imap`.
 
 ## Core Commands
 
@@ -51,6 +74,7 @@ python main.py kb-reindex --source all --no-embed --limit 10
 python main.py kb-reindex --source all
 
 python main.py folder-scan --folder ~/research-pipeline/downloads --notify
+python main.py gmail-auth
 python main.py email-sweep --once --notify
 python main.py headline-sweep --once --notify
 

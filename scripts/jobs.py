@@ -326,6 +326,7 @@ def _process_job(job: dict) -> str:
         stats = email_sweep(
             notify=bool(payload.get("notify", True)),
             analyse_attachments=bool(payload.get("analyse_attachments", False)),
+            extract_research=bool(payload.get("extract_research", True)),
         )
         return json.dumps(stats)
 

@@ -2,12 +2,13 @@
 timezone: Asia/Hong_Kong
 folder: C:\Users\Owner\Downloads\research-inbox
 folder_sweep_times: [08:30, 20:30]
-email_sweep_times: [08:30, 20:30]
+email_sweep_times: [01:00, 13:00]
 headline_sweep_times: [02:00, 08:00, 14:00, 20:00]
 headline_interval_hours: 6
 notify: true
 folder_analyse: false
 email_analyse_attachments: false
+email_extract_research: true
 ---
 
 # Research Pipeline Agenda
@@ -15,7 +16,7 @@ email_analyse_attachments: false
 This file controls the always-on heartbeat scheduler.
 
 - Folder scans enqueue PDFs into the worker.
-- Email sweeps ingest Substack/research messages and queue PDF attachments.
+- Email sweeps ingest Substack/research messages, parse attached `.eml` research emails, run structured extraction, and queue PDF attachments.
 - Folder and email sweeps index PDFs silently by default; they do not send full analyst read-throughs unless the analyse flags above are set to true.
 - Headline sweeps run at 02:00, 08:00, 14:00, and 20:00 HKT, storing raw matches and sending ranked 6-hour Tech Brief digests.
 - The worker is the only long-running process that performs heavy ingestion.
