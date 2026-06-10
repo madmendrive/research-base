@@ -26,7 +26,7 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 RESEARCH_MODEL = "claude-opus-4-7"   # default; per-call overrides for tiering below
 EXTRACTION_MODEL = "claude-sonnet-4-6"   # structured JSON from doc text
 SYNTHESIS_MODEL = "claude-opus-4-7"      # view-evolution + comparative analysis
-MAX_TEXT_CHARS = 30_000
+MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 
 # Currency / unit config by market
 MARKET_CURRENCY = {
@@ -209,6 +209,9 @@ def store_research(ticker, file_path):
             click.echo(f"  JSON parse failed (attempt {json_attempt + 1}/3): {e}; retrying API call...")
     if note_data is None:
         raise RuntimeError("Extraction call produced unparsable JSON after 3 attempts")
+    if text.endswith("[...truncated]"):
+        note_data.setdefault("metadata", {})["text_truncated"] = True
+        click.echo("  WARNING: document exceeded the extraction text ceiling — tail was not analysed")
 
     # d. Save JSON
     json_path = notes_dir / f"{dest_name}.json"
@@ -824,7 +827,7 @@ def analyse_research(ticker, file_path=None, headline=None):
 
     click.echo("Running comparative analysis...")
     analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:15000]))
+                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]))
 
     # d. Print to terminal
     click.echo("")

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 
-MAX_TEXT_CHARS = 30_000
+MAX_TEXT_CHARS = 400_000
 
 _json_cache: dict[str, tuple[tuple[float, int], dict]] = {}
 
@@ -55,7 +55,7 @@ def extract_file_text(path: Path, *, max_chars: int = MAX_TEXT_CHARS) -> str:
     if suffix in (".pdf", ".htm", ".html"):
         from scripts.classifier import extract_text
 
-        text, err = extract_text(path, max_pages=200, max_chars=max_chars)
+        text, err = extract_text(path, max_pages=300, max_chars=max_chars)
         if err:
             raise RuntimeError(f"Failed to extract text from {path.name}: {err}")
         if not text:

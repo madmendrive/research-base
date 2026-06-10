@@ -34,8 +34,11 @@ PENDING_REVIEW_DIR = DATA_DIR / "_pending_review"
 
 TRIAGE_MAX_PAGES = 8
 TRIAGE_MAX_CHARS = 25_000
-EXTRACT_MAX_PAGES = 200
-EXTRACT_MAX_CHARS = 30_000
+# Extraction reads (close to) the whole document. The old 30K-char cap meant
+# the model never saw ~80-90% of a long primer; 400K chars (~100K tokens) fits
+# comfortably in current model context windows.
+EXTRACT_MAX_PAGES = 300
+EXTRACT_MAX_CHARS = int(os.environ.get("EXTRACT_MAX_CHARS", "400000"))
 
 IGNORE_PATTERNS = (
     ".syncthing.",
@@ -242,7 +245,10 @@ def _extract_with_provider(pdf_path: Path, triage: dict[str, Any]) -> dict[str, 
     config = env_config("EXTRACTION", "openai", "gpt-5.1", timeout=300.0)
     prompt = _build_extraction_prompt(triage, text)
     payload = complete_json(prompt, config=config, max_output_tokens=16384)
-    return _normalize_extraction(payload, triage)
+    payload = _normalize_extraction(payload, triage)
+    if text.endswith("[...truncated]"):
+        payload.setdefault("metadata", {})["text_truncated"] = True
+    return payload
 
 
 def stage_one(pdf_path: str | Path, force: bool = False) -> dict[str, Any]:

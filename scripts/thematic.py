@@ -26,7 +26,7 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 RESEARCH_MODEL = "claude-opus-4-7"   # default
 EXTRACTION_MODEL = "claude-sonnet-4-6"
 SYNTHESIS_MODEL = "claude-opus-4-7"
-MAX_TEXT_CHARS = 30_000
+MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +353,9 @@ def store_thematic(theme, file_paths):
 
         # d. Parse and save
         note_data = _parse_json_response(raw)
+        if text.endswith("[...truncated]"):
+            note_data.setdefault("metadata", {})["text_truncated"] = True
+            click.echo("  WARNING: document exceeded the extraction text ceiling — tail was not analysed")
         json_path = notes_dir / f"{dest_name}.json"
         with open(json_path, "w") as f:
             json.dump(note_data, f, indent=2, ensure_ascii=False)
@@ -787,7 +790,7 @@ def analyse_thematic(theme, file_path):
 
     click.echo("Running cross-reference analysis...")
     analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:15000]))
+                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]))
 
     # e. Print
     click.echo("")

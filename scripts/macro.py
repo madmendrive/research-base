@@ -59,7 +59,7 @@ def use_category(category: str):
 RESEARCH_MODEL = "claude-opus-4-7"   # default
 EXTRACTION_MODEL = "claude-sonnet-4-6"   # structured JSON
 SYNTHESIS_MODEL = "claude-opus-4-7"      # view-evolution + comparative analysis
-MAX_TEXT_CHARS = 30_000
+MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 
 VIEW_TOPICS = [
     "growth_outlook", "inflation_outlook", "monetary_policy",
@@ -674,6 +674,9 @@ def store_macro(file_path, author):
             click.echo(f"  JSON parse failed (attempt {json_attempt + 1}/3): {e}; retrying API call...")
     if note_data is None:
         raise RuntimeError("Extraction call produced unparsable JSON after 3 attempts")
+    if text.endswith("[...truncated]"):
+        note_data.setdefault("metadata", {})["text_truncated"] = True
+        click.echo("  WARNING: document exceeded the extraction text ceiling — tail was not analysed")
     json_path = notes_dir / f"{dest_name}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(note_data, f, indent=2, ensure_ascii=False)
@@ -848,7 +851,7 @@ def analyse_macro(file_path):
 
     click.echo("Running comparative analysis...")
     analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:15000]))
+                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]))
 
     click.echo("")
     click.echo(analysis)
