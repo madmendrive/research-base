@@ -240,9 +240,40 @@ def _reasoning_effort(model: str) -> str:
     return "minimal"
 
 
+def openai_pdf_file_part(path) -> dict:
+    """OpenAI Responses API input_file part carrying a PDF as a data URL."""
+    import base64
+    from pathlib import Path as _Path
+
+    path = _Path(path)
+    data = base64.standard_b64encode(path.read_bytes()).decode("ascii")
+    return {
+        "type": "input_file",
+        "filename": path.name,
+        "file_data": f"data:application/pdf;base64,{data}",
+    }
+
+
+def _openai_input_messages(prompt: str, system: str | None, pdf_path=None) -> list[dict]:
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    if pdf_path is not None:
+        content = [openai_pdf_file_part(pdf_path), {"type": "input_text", "text": prompt}]
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": prompt})
+    return messages
+
+
 def complete_json(prompt: str, *, config: LLMConfig, system: str | None = None,
-                  max_output_tokens: int = 8192) -> dict[str, Any]:
-    """Call the configured provider and parse a JSON object response."""
+                  max_output_tokens: int = 8192, pdf_path=None) -> dict[str, Any]:
+    """Call the configured provider and parse a JSON object response.
+
+    pdf_path: attach the PDF natively so the model reads tables/charts/exhibits
+    visually (both providers support this). Callers should gate on
+    native_pdf_eligible() and skip inlining the extracted text when attaching.
+    """
     provider = config.provider.lower().strip()
     last_error: Exception | None = None
     for attempt in range(1, config.max_retries + 1):
@@ -251,10 +282,7 @@ def complete_json(prompt: str, *, config: LLMConfig, system: str | None = None,
                 if not os.environ.get("OPENAI_API_KEY"):
                     raise LLMProviderError("OPENAI_API_KEY is required for OpenAI extraction")
                 client = get_client("openai", timeout=config.timeout)
-                messages = []
-                if system:
-                    messages.append({"role": "system", "content": system})
-                messages.append({"role": "user", "content": prompt})
+                messages = _openai_input_messages(prompt, system, pdf_path)
                 request_tokens = min(32768, max(1000, max_output_tokens * attempt))
                 kwargs = {
                     "model": config.model,
@@ -282,10 +310,25 @@ def complete_json(prompt: str, *, config: LLMConfig, system: str | None = None,
                 if not os.environ.get("ANTHROPIC_API_KEY"):
                     raise LLMProviderError("ANTHROPIC_API_KEY is required for Anthropic extraction")
                 client = get_client("anthropic", timeout=config.timeout)
+                if pdf_path is not None:
+                    import base64
+                    from pathlib import Path as _Path
+
+                    data = base64.standard_b64encode(_Path(pdf_path).read_bytes()).decode("ascii")
+                    user_content = [
+                        {
+                            "type": "document",
+                            "source": {"type": "base64", "media_type": "application/pdf", "data": data},
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {"type": "text", "text": prompt},
+                    ]
+                else:
+                    user_content = prompt
                 kwargs = {
                     "model": config.model,
                     "max_tokens": max_output_tokens,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": user_content}],
                 }
                 if system:
                     kwargs["system"] = cached_system_block(system)

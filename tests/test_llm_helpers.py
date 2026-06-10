@@ -234,6 +234,43 @@ class NativePdfPayloadTests(unittest.TestCase):
         self.assertEqual(messages, [{"role": "user", "content": "prompt"}])
 
 
+class OpenAiPdfInputTests(unittest.TestCase):
+    def test_file_part_shape(self):
+        from scripts.llm_provider import openai_pdf_file_part
+
+        pdf = Path(tempfile.mkdtemp()) / "note.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        part = openai_pdf_file_part(pdf)
+        self.assertEqual(part["type"], "input_file")
+        self.assertEqual(part["filename"], "note.pdf")
+        self.assertTrue(part["file_data"].startswith("data:application/pdf;base64,"))
+
+    def test_input_messages_with_and_without_pdf(self):
+        from scripts.llm_provider import _openai_input_messages
+
+        plain = _openai_input_messages("ask", "sys", None)
+        self.assertEqual(plain, [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "ask"},
+        ])
+        pdf = Path(tempfile.mkdtemp()) / "doc.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        with_pdf = _openai_input_messages("ask", None, pdf)
+        content = with_pdf[0]["content"]
+        self.assertEqual(content[0]["type"], "input_file")
+        self.assertEqual(content[1], {"type": "input_text", "text": "ask"})
+
+    def test_fast_path_prompt_omits_inline_document_when_native(self):
+        from scripts.parallel_ingest import _build_extraction_prompt
+
+        triage = {"primary_type": "macro", "primary_subject": "Test Author", "category": "Macro"}
+        inline = _build_extraction_prompt(triage, "DOCBODY")
+        self.assertIn("<document>\nDOCBODY\n</document>", inline)
+        native = _build_extraction_prompt(triage, "", include_text=False)
+        self.assertNotIn("<document>", native)
+        self.assertIn("attached to this request as a PDF", native)
+
+
 class CachedDocumentBlockTests(unittest.TestCase):
     def test_block_shape_and_cache_marker(self):
         from scripts.llm_provider import cached_document_block
