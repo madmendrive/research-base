@@ -213,6 +213,28 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                     dedupe_key=f"headline_sweep:interval:{now.isoformat(timespec='minutes')}",
                 )
 
+        # Nightly reindex closes the gap between the bot/sweeper store path
+        # (which writes notes but doesn't index them) and the searchable KB +
+        # structured research memory. Both jobs are hash-checked, so re-runs
+        # only touch new/changed files.
+        reindex_times = agenda.get("reindex_times")
+        if reindex_times is None:
+            reindex_times = ["03:00"]
+        reindex_due = _scheduled_slot_due(now, list(reindex_times), state, "reindex", catch_up=False)
+        if reindex_due:
+            scheduled, run_key = reindex_due
+            enqueue_job(
+                "kb_reindex",
+                {"source": "all", "notify": False},
+                dedupe_key=f"kb_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
+            )
+            enqueue_job(
+                "research_map_reindex",
+                {"notify": False},
+                dedupe_key=f"research_map_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
+            )
+            state[run_key] = now.isoformat(timespec="seconds")
+
         _save_state(state)
         if run_once:
             return
