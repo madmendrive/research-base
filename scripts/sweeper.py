@@ -73,9 +73,15 @@ def _save_state(state: dict, path: Path) -> None:
 
 
 def _bulk_hashes() -> set[str]:
-    """Hashes of files already processed by the bulk-ingest pass — skip these."""
-    state = _load_state(BULK_STATE_PATH)
-    return set(state.get("processed", {}).keys())
+    """Hashes of files already processed by the bulk-ingest pass — skip these.
+
+    Re-read (mtime-cached) on every check so a bulk run that finishes while
+    the sweeper is already running is still seen; a startup-only snapshot
+    used to double-process anything bulk handled after the sweeper started.
+    """
+    from scripts.fileio import load_json_cached
+
+    return set(load_json_cached(BULK_STATE_PATH).get("processed", {}).keys())
 
 
 def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:
@@ -174,7 +180,6 @@ class PDFHandler(FileSystemEventHandler):
         self.with_cross_cut = with_cross_cut
         self.log = log
         self.state = _load_state(SWEEPER_STATE_PATH)
-        self.bulk_processed = _bulk_hashes()
 
     def on_created(self, event):
         if event.is_directory:
@@ -212,7 +217,7 @@ class PDFHandler(FileSystemEventHandler):
         if h in self.state.get("processed", {}):
             self.log.info("already processed (sweeper state): %s", path.name)
             return
-        if h in self.bulk_processed:
+        if h in _bulk_hashes():
             self.log.info("already processed (bulk state): %s", path.name)
             self.state.setdefault("processed", {})[h] = {
                 "file": path.name,

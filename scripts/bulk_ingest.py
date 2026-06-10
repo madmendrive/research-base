@@ -17,6 +17,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 STATE_PATH = DATA_DIR / "_bulk_ingest_state.json"
+SWEEPER_STATE_PATH = DATA_DIR / "_sweeper_state.json"
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +35,17 @@ def _save_state(state: dict) -> None:
     from scripts.fileio import write_json_atomic
 
     write_json_atomic(STATE_PATH, state, trailing_newline=False)
+
+
+def _sweeper_hashes() -> set[str]:
+    """Hashes the realtime sweeper already processed — skip these too.
+
+    The sweeper checks bulk state symmetrically; without this, backfilling
+    an inbox the sweeper has been watching re-ingests everything it handled.
+    """
+    from scripts.fileio import load_json_cached
+
+    return set(load_json_cached(SWEEPER_STATE_PATH).get("processed", {}).keys())
 
 
 def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:
@@ -316,7 +328,7 @@ def bulk_ingest(folder: str, dry_run: bool = False, limit: int = 0,
         return
 
     state = _load_state()
-    processed_hashes = set(state.get("processed", {}).keys())
+    processed_hashes = set(state.get("processed", {}).keys()) | _sweeper_hashes()
     failed_state = state.get("failed", {})
     MAX_RETRIES = 3
 
