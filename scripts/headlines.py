@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -319,8 +320,38 @@ def _load_state() -> dict:
         return {"seen": {}}
 
 
+SEEN_RETENTION_DAYS = 45
+ITEMS_RETENTION_DAYS = 14
+
+
+def _prune_state(state: dict) -> None:
+    """Drop old entries so the state file doesn't grow without bound.
+
+    Dedupe only needs to look back as far as the sweep window (hours), and
+    stored items only back a digest or two, so these retention windows are
+    deliberately generous.
+    """
+    def cutoff(days: int) -> str:
+        return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+
+    def prune(entries: dict, field: str, days: int) -> dict:
+        limit = cutoff(days)
+        kept = {}
+        for key, value in entries.items():
+            stamp = str((value or {}).get(field) or "")
+            if not stamp or stamp >= limit:
+                kept[key] = value
+        return kept
+
+    if isinstance(state.get("seen"), dict):
+        state["seen"] = prune(state["seen"], "first_seen_at", SEEN_RETENTION_DAYS)
+    if isinstance(state.get("items"), dict):
+        state["items"] = prune(state["items"], "fetched_at", ITEMS_RETENTION_DAYS)
+
+
 def _save_state(state: dict) -> None:
     HEADLINE_DIR.mkdir(parents=True, exist_ok=True)
+    _prune_state(state)
     tmp = STATE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(STATE_PATH)
@@ -479,14 +510,23 @@ def _source_home_url(source_el: ET.Element | None) -> str:
     return source_el.attrib.get("url", "") or ""
 
 
+_thread_local = threading.local()
+
+
+def _session() -> requests.Session:
+    """Per-thread Session so feed fetches reuse TCP/TLS connections."""
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers["User-Agent"] = "Mozilla/5.0"
+        _thread_local.session = session
+    return session
+
+
 def _http_get(url: str, *, timeout: float = 10.0) -> requests.Response:
     """GET with a Windows-friendly SSL fallback for news sites."""
     try:
-        return requests.get(
-            url,
-            timeout=timeout,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
+        return _session().get(url, timeout=timeout)
     except SSLError:
         try:
             import urllib3
@@ -494,12 +534,7 @@ def _http_get(url: str, *, timeout: float = 10.0) -> requests.Response:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         except Exception:
             pass
-        return requests.get(
-            url,
-            timeout=timeout,
-            headers={"User-Agent": "Mozilla/5.0"},
-            verify=False,
-        )
+        return _session().get(url, timeout=timeout, verify=False)
 
 
 def _resolve_source_url(url: str) -> str:
@@ -1413,14 +1448,13 @@ Headlines:
 {chr(10).join(lines)}
 """
     try:
-        from anthropic import Anthropic
+        from scripts.llm_provider import get_client
 
-        client = Anthropic(timeout=90.0, max_retries=2)
+        client = get_client("anthropic", timeout=90.0, max_retries=2)
         resp = client.messages.create(
             model=(
                 os.environ.get("HEADLINE_ANTHROPIC_MODEL")
-                or os.environ.get("ANALYST_STRUCTURED_ANTHROPIC_MODEL")
-                or "claude-opus-4-7"
+                or "claude-sonnet-4-6"
             ),
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}],
@@ -1501,14 +1535,13 @@ Rules:
 Rows:
 {json.dumps(payload, ensure_ascii=False, indent=2)}
 """
-    from anthropic import Anthropic
+    from scripts.llm_provider import get_client
 
-    client = Anthropic(timeout=60.0, max_retries=1)
+    client = get_client("anthropic", timeout=60.0, max_retries=1)
     resp = client.messages.create(
         model=(
             os.environ.get("HEADLINE_ANTHROPIC_MODEL")
-            or os.environ.get("ANALYST_STRUCTURED_ANTHROPIC_MODEL")
-            or "claude-opus-4-7"
+            or "claude-sonnet-4-6"
         ),
         max_tokens=3000,
         messages=[{"role": "user", "content": prompt}],

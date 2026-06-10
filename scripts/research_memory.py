@@ -30,9 +30,19 @@ def _json(value) -> str:
     return json.dumps(value or {}, ensure_ascii=False, sort_keys=True)
 
 
+_companies_cache: tuple[float, dict] | None = None
+
+
 def _load_companies() -> dict:
+    """companies.json, cached on mtime — called per estimate row during ingest."""
+    global _companies_cache
     try:
-        return json.loads(COMPANIES_PATH.read_text(encoding="utf-8"))
+        mtime = COMPANIES_PATH.stat().st_mtime
+        if _companies_cache is not None and _companies_cache[0] == mtime:
+            return _companies_cache[1]
+        data = json.loads(COMPANIES_PATH.read_text(encoding="utf-8"))
+        _companies_cache = (mtime, data)
+        return data
     except Exception:
         return {}
 

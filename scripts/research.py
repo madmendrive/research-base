@@ -12,6 +12,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from scripts.classifier import extract_text
+from scripts.fileio import write_json_atomic
 from scripts.analysis_report import (
     ANALYSIS_REPORT_INSTRUCTIONS as ANALYSIS_REPORT_ADDENDUM,
     build_second_pass_prompt,
@@ -592,9 +593,7 @@ def rebuild_summary(ticker):
 
     # Save summary.json
     summary_json_path = research_dir / "summary.json"
-    with open(summary_json_path, "w") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json_atomic(summary_json_path, summary)
     click.echo(f"  Saved {summary_json_path.relative_to(PROJECT_ROOT)}")
 
     # Generate summary.md

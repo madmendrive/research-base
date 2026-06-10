@@ -11,6 +11,7 @@ from pathlib import Path
 from anthropic import Anthropic
 
 from scripts.classifier import extract_text
+from scripts.fileio import write_json_atomic
 from scripts.analysis_report import (
     ANALYSIS_REPORT_INSTRUCTIONS as ANALYSIS_REPORT_ADDENDUM,
     build_second_pass_prompt,
@@ -298,10 +299,7 @@ def _load_author_summary(author_dir):
 
 
 def _save_author_summary(author_dir, summary):
-    path = author_dir / "author_summary.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json_atomic(author_dir / "author_summary.json", summary)
 
 
 def _update_author_views(summary, note_data, source_filename):
@@ -447,9 +445,7 @@ def _update_themes(note_data, author):
                 author_entry["history"] = author_entry["history"][:MAX_HISTORY]
             author_entry["current"] = new_view
 
-        with open(theme_file, "w", encoding="utf-8") as f:
-            json.dump(theme_data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
+        write_json_atomic(theme_file, theme_data)
 
 
 # ---------------------------------------------------------------------------
@@ -493,9 +489,7 @@ def _rebuild_macro_summary():
         }
 
     summary_json_path = _macro_dir() / "macro_summary.json"
-    with open(summary_json_path, "w", encoding="utf-8") as f:
-        json.dump(macro_summary, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    write_json_atomic(summary_json_path, macro_summary)
 
     # Generate macro_summary.md
     md = _generate_macro_summary_md(macro_summary, all_author_summaries)

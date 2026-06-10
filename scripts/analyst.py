@@ -119,12 +119,11 @@ def _call_openai(
     max_retries: int | None = None,
     reasoning_effort: str | None = None,
 ) -> str:
-    from openai import OpenAI
-    from scripts.llm_provider import _openai_text
+    from scripts.llm_provider import _openai_text, get_client
 
     timeout = timeout if timeout is not None else _env_float("ANALYST_TIMEOUT", 600.0)
     max_retries = max_retries if max_retries is not None else _env_int("ANALYST_PROVIDER_MAX_RETRIES", 1)
-    client = OpenAI(timeout=timeout, max_retries=max_retries)
+    client = get_client("openai", timeout=timeout, max_retries=max_retries)
     kwargs = {
         "model": model,
         "input": [
@@ -161,15 +160,15 @@ def _call_anthropic(
     timeout: float | None = None,
     max_retries: int | None = None,
 ) -> str:
-    from anthropic import Anthropic
+    from scripts.llm_provider import cached_system_block, get_client
 
     timeout = timeout if timeout is not None else _env_float("ANALYST_TIMEOUT", 600.0)
     max_retries = max_retries if max_retries is not None else _env_int("ANALYST_PROVIDER_MAX_RETRIES", 1)
-    client = Anthropic(timeout=timeout, max_retries=max_retries)
+    client = get_client("anthropic", timeout=timeout, max_retries=max_retries)
     resp = client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        system=ANALYST_SYSTEM_PROMPT,
+        system=cached_system_block(ANALYST_SYSTEM_PROMPT),
         messages=[{"role": "user", "content": prompt}],
     )
     return resp.content[0].text.strip()

@@ -52,13 +52,19 @@ def slugify(value: str, max_len: int = 90) -> str:
     return (value[:max_len] or "untitled").strip("._")
 
 
+_schema_ready: set[str] = set()
+
+
 def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    init_schema(conn)
+    key = str(db_path.resolve())
+    if key not in _schema_ready:
+        init_schema(conn)
+        _schema_ready.add(key)
     return conn
 
 
@@ -197,11 +203,21 @@ def _estimate_tokens(text: str) -> int:
     return max(1, int(len(text) / 4))
 
 
+_companies_cache: tuple[float, dict] | None = None
+
+
 def _load_companies() -> dict:
+    """companies.json, cached on mtime — called per chunk during indexing."""
+    global _companies_cache
     if not CONFIG_PATH.exists():
         return {}
+    mtime = CONFIG_PATH.stat().st_mtime
+    if _companies_cache is not None and _companies_cache[0] == mtime:
+        return _companies_cache[1]
     with open(CONFIG_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    _companies_cache = (mtime, data)
+    return data
 
 
 def _theme_names() -> list[str]:

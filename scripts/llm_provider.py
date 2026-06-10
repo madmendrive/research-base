@@ -14,6 +14,31 @@ class LLMProviderError(RuntimeError):
     pass
 
 
+_CLIENT_CACHE: dict[tuple, Any] = {}
+
+
+def get_client(provider: str, *, timeout: float = 180.0, max_retries: int = 0):
+    """Return a cached SDK client (thread-safe, holds a connection pool)."""
+    key = (provider, timeout, max_retries)
+    client = _CLIENT_CACHE.get(key)
+    if client is None:
+        if provider == "openai":
+            from openai import OpenAI
+
+            client = OpenAI(timeout=timeout, max_retries=max_retries)
+        else:
+            from anthropic import Anthropic
+
+            client = Anthropic(timeout=timeout, max_retries=max_retries)
+        _CLIENT_CACHE[key] = client
+    return client
+
+
+def cached_system_block(system: str) -> list[dict]:
+    """Anthropic system param with a prompt-cache marker on the static block."""
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 @dataclass(frozen=True)
 class LLMConfig:
     provider: str
@@ -79,9 +104,7 @@ def complete_json(prompt: str, *, config: LLMConfig, system: str | None = None,
             if provider == "openai":
                 if not os.environ.get("OPENAI_API_KEY"):
                     raise LLMProviderError("OPENAI_API_KEY is required for OpenAI extraction")
-                from openai import OpenAI
-
-                client = OpenAI(timeout=config.timeout, max_retries=0)
+                client = get_client("openai", timeout=config.timeout)
                 messages = []
                 if system:
                     messages.append({"role": "system", "content": system})
@@ -112,16 +135,14 @@ def complete_json(prompt: str, *, config: LLMConfig, system: str | None = None,
             if provider in {"anthropic", "claude"}:
                 if not os.environ.get("ANTHROPIC_API_KEY"):
                     raise LLMProviderError("ANTHROPIC_API_KEY is required for Anthropic extraction")
-                from anthropic import Anthropic
-
-                client = Anthropic(timeout=config.timeout, max_retries=0)
+                client = get_client("anthropic", timeout=config.timeout)
                 kwargs = {
                     "model": config.model,
                     "max_tokens": max_output_tokens,
                     "messages": [{"role": "user", "content": prompt}],
                 }
                 if system:
-                    kwargs["system"] = system
+                    kwargs["system"] = cached_system_block(system)
                 response = client.messages.create(**kwargs)
                 return parse_json_response(response.content[0].text)
 

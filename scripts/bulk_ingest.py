@@ -31,9 +31,9 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+    from scripts.fileio import write_json_atomic
+
+    write_json_atomic(STATE_PATH, state, trailing_newline=False)
 
 
 def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:

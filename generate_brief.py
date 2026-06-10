@@ -269,26 +269,31 @@ RULES:
     # Process chunks in parallel
     from concurrent.futures import as_completed as _as_completed
 
+    # Static instructions go in a cached system block so parallel chunk calls
+    # share one prompt-cache entry instead of resending the rules each time.
+    system_block = [{
+        "type": "text",
+        "text": f"""{base_rules}
+
+Sections:
+{structure_text}
+
+IMPORTANT: Route each headline to the CORRECT section. Tech headlines (semiconductors, AI servers, foundries, GPUs, substrates, PCB, memory) go under Tech. AI headlines (OpenAI, Anthropic, Gemini) go under AI. Crypto headlines go under Crypto. Asia-specific headlines go under the relevant country. Do NOT put everything under World.""",
+        "cache_control": {"type": "ephemeral"},
+    }]
+
     def _process_chunk(chunk_headlines, chunk_idx):
         chunk_text = "\n".join(
             f"- [{h['source']}] {h['title']} (Published: {h['time']}) URL: {h.get('link', 'N/A')}"
             for h in chunk_headlines
         )
-        prompt = f"""{base_rules}
-
-Sections:
-{structure_text}
-
-IMPORTANT: Route each headline to the CORRECT section. Tech headlines (semiconductors, AI servers, foundries, GPUs, substrates, PCB, memory) go under Tech. AI headlines (OpenAI, Anthropic, Gemini) go under AI. Crypto headlines go under Crypto. Asia-specific headlines go under the relevant country. Do NOT put everything under World.
-
-Headlines (batch {chunk_idx+1}):
-{chunk_text}"""
+        prompt = f"Headlines (batch {chunk_idx+1}):\n{chunk_text}"
         for attempt in range(3):
             try:
-                c = Anthropic(timeout=90.0)
-                resp = c.messages.create(
+                resp = client.messages.create(
                     model="claude-haiku-4-5-20251001",
                     max_tokens=2000,
+                    system=system_block,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 return resp.content[0].text
