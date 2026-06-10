@@ -42,7 +42,9 @@ DEFAULT_SUFFIX_MAP = {
     "KQ": "KQ",
     "TT": "TT",
     "TW": "TT",
-    "TWO": "TWO",
+    # Bloomberg TT covers both TWSE and TPEx; Yahoo-style .TWO (TPEx) folds in
+    # so e.g. 6223 TWO and 6223 TT don't become separate subjects.
+    "TWO": "TT",
     "T": "JT",
     "JT": "JT",
     "JP": "JT",
