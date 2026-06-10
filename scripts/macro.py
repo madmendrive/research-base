@@ -10,8 +10,8 @@ from pathlib import Path
 
 from anthropic import Anthropic
 
-from scripts.classifier import extract_text
-from scripts.fileio import write_json_atomic
+from scripts.fileio import extract_file_text, write_json_atomic
+from scripts.llm_provider import call_api, parse_json_loose
 from scripts.analysis_report import (
     ANALYSIS_REPORT_INSTRUCTIONS as ANALYSIS_REPORT_ADDENDUM,
     build_second_pass_prompt,
@@ -92,81 +92,16 @@ def _today_prefix():
 
 
 def _extract_file_text(path):
-    path = Path(path)
-    suffix = path.suffix.lower()
-    if suffix in (".pdf", ".htm", ".html"):
-        text, err = extract_text(path, max_pages=200, max_chars=MAX_TEXT_CHARS)
-        if err:
-            raise RuntimeError(f"Failed to extract text from {path.name}: {err}")
-        if not text:
-            raise RuntimeError(f"No text extracted from {path.name}")
-        return text
-    elif suffix in (".txt", ".md", ".csv"):
-        raw = path.read_bytes()
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            text = raw.decode("latin-1")
-        if len(text) > MAX_TEXT_CHARS:
-            text = text[:MAX_TEXT_CHARS] + "\n[...truncated]"
-        return text
-    else:
-        raise RuntimeError(f"Unsupported file type: {suffix}")
+    return extract_file_text(path, max_chars=MAX_TEXT_CHARS)
 
 
-def _call_api(client, messages, max_tokens=8192, model=None):
-    """Same shape as scripts.research._call_api but local to macro.
-
-    model: optional override. Defaults to RESEARCH_MODEL. Pass EXTRACTION_MODEL
-           or SYNTHESIS_MODEL to express tier choice.
-    """
-    import time
-    chosen_model = model or RESEARCH_MODEL
-    for attempt in range(3):
-        try:
-            response = client.messages.create(
-                model=chosen_model,
-                max_tokens=max_tokens,
-                messages=messages,
-            )
-            return response.content[0].text
-        except Exception as e:
-            err_str = str(e).lower()
-            if "overloaded" in err_str or "connection" in err_str or "529" in err_str or "disconnected" in err_str:
-                if attempt < 2:
-                    wait = 5 * (attempt + 1)
-                    print(f"  API transient error, retrying in {wait}s (streaming)...")
-                    time.sleep(wait)
-                    # Fall back to streaming to keep connection alive
-                    try:
-                        chunks = []
-                        with client.messages.stream(
-                            model=chosen_model,
-                            max_tokens=max_tokens,
-                            messages=messages,
-                        ) as stream:
-                            for text in stream.text_stream:
-                                chunks.append(text)
-                            final = stream.get_final_message()
-                        # If the stream was truncated (max_tokens hit, connection drop),
-                        # don't return partial chunks — fall through to next retry.
-                        if final.stop_reason not in ("end_turn", "stop_sequence"):
-                            print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
-                            continue
-                        return "".join(chunks)
-                    except Exception as inner:
-                        print(f"  streaming retry failed: {inner}, trying again...")
-                        continue
-            raise
-    raise RuntimeError("API call failed after 3 attempts")
+def _call_api(client, messages, max_tokens=8192, system=None, return_response=False, model=None):
+    return call_api(client, messages, max_tokens=max_tokens, system=system,
+                    return_response=return_response, model=model,
+                    default_model=RESEARCH_MODEL)
 
 
-def _parse_json_response(text):
-    text = text.strip()
-    md_match = re.match(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
-    if md_match:
-        text = md_match.group(1).strip()
-    return json.loads(text)
+_parse_json_response = parse_json_loose
 
 
 def _list_all_authors():

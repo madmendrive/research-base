@@ -39,6 +39,81 @@ def cached_system_block(system: str) -> list[dict]:
     return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
 
 
+def parse_json_loose(text: str):
+    """Parse JSON from a model response, stripping markdown code fences.
+
+    Unlike parse_json_response this raises json.JSONDecodeError (which
+    research/macro/thematic store flows catch for their retry loop) and
+    allows non-object JSON.
+    """
+    text = (text or "").strip()
+    md_match = re.match(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+    if md_match:
+        text = md_match.group(1).strip()
+    return json.loads(text)
+
+
+def call_api(client, messages, max_tokens=8192, system=None, return_response=False,
+             model=None, default_model="claude-opus-4-7"):
+    """Anthropic call with transient-error retry + streaming fallback.
+
+    Shared by research/macro/thematic (was triplicated there).
+
+    system: list of content blocks (use cached_system_block for prompt
+            caching) or a plain string.
+    return_response: return the raw response object instead of just the text
+                     (so callers can inspect usage metadata).
+    """
+    chosen_model = model or default_model
+    for attempt in range(3):
+        try:
+            kwargs = {
+                "model": chosen_model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+            }
+            if system is not None:
+                kwargs["system"] = system
+            response = client.messages.create(**kwargs)
+            if return_response:
+                return response
+            return response.content[0].text
+        except Exception as e:
+            err_str = str(e).lower()
+            if "overloaded" in err_str or "connection" in err_str or "529" in err_str or "disconnected" in err_str:
+                if attempt < 2:
+                    wait = 5 * (attempt + 1)
+                    print(f"  API transient error, retrying in {wait}s (streaming)...")
+                    time.sleep(wait)
+                    # Fall back to streaming to keep the connection alive
+                    try:
+                        stream_kwargs = {
+                            "model": chosen_model,
+                            "max_tokens": max_tokens,
+                            "messages": messages,
+                        }
+                        if system is not None:
+                            stream_kwargs["system"] = system
+                        chunks = []
+                        with client.messages.stream(**stream_kwargs) as stream:
+                            for text in stream.text_stream:
+                                chunks.append(text)
+                            final = stream.get_final_message()
+                        # Truncated streams (max_tokens hit, connection drop) must not
+                        # return partial chunks — fall through to the next retry.
+                        if final.stop_reason not in ("end_turn", "stop_sequence"):
+                            print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
+                            continue
+                        if return_response:
+                            return final
+                        return "".join(chunks)
+                    except Exception as inner:
+                        print(f"  streaming retry failed: {inner}, trying again...")
+                        continue
+            raise
+    raise RuntimeError("API call failed after 3 attempts")
+
+
 @dataclass(frozen=True)
 class LLMConfig:
     provider: str
