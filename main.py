@@ -556,6 +556,22 @@ def kb_reindex_cmd(source, force, limit, no_embed):
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+@cli.command("reingest-clipped")
+@click.option("--folder", default=None, help="Inbox folder to scan (default: research-inbox).")
+@click.option("--threshold", default=30000, show_default=True, type=int,
+              help="Docs whose extracted text exceeds this many chars were clipped by the old ceiling.")
+@click.option("--apply", is_flag=True,
+              help="Clear the clipped docs' ingest-state hashes so the next bulk-ingest / folder sweep re-processes them. Without this flag, just list them.")
+def reingest_clipped_cmd(folder, threshold, apply):
+    """Find docs clipped by the old 30K-char extraction ceiling and queue re-ingestion."""
+    from scripts.reingest_clipped import reingest_clipped
+
+    stats = reingest_clipped(folder=folder, threshold=threshold, apply=apply)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+    if stats["clipped"] and not apply:
+        click.echo("\nDry run only. Re-run with --apply, then run: python main.py bulk-ingest")
+
+
 @cli.command("research-map-reindex")
 @click.option("--force", is_flag=True, help="Rebuild structured research-memory tables from scratch.")
 @click.option("--limit", default=0, type=int, help="Index at most N extracted JSON notes (0 = unlimited).")

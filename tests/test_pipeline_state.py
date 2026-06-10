@@ -116,5 +116,71 @@ class BulkIngestSeesSweeperStateTests(unittest.TestCase):
                 self.assertEqual(bulk_ingest._sweeper_hashes(), {"feed42"})
 
 
+class ReingestClippedTests(unittest.TestCase):
+    def test_clears_matching_hashes_across_state_files(self):
+        import hashlib
+        import scripts.reingest_clipped as rc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            inbox = tmp / "inbox"
+            inbox.mkdir()
+            big = inbox / "primer.pdf"
+            big.write_bytes(b"%PDF big primer bytes")
+            full = hashlib.sha256(big.read_bytes()).hexdigest()
+            short = full[:16]
+
+            bulk = tmp / "bulk.json"
+            bulk.write_text(json.dumps({"processed": {short: {}, "keepme": {}}, "failed": {}}), encoding="utf-8")
+            sweep = tmp / "sweep.json"
+            sweep.write_text(json.dumps({"processed": {short: {}}, "failed": {}}), encoding="utf-8")
+            fast = tmp / "fast.json"
+            fast.write_text(json.dumps({"committed": {full: {}}, "failed": {}}), encoding="utf-8")
+            staging = tmp / "staging"
+            staging.mkdir()
+            (staging / f"{full}.json").write_text("{}", encoding="utf-8")
+
+            patches = [
+                mock.patch.object(rc, "BULK_STATE", bulk),
+                mock.patch.object(rc, "SWEEPER_STATE", sweep),
+                mock.patch.object(rc, "FAST_STATE", fast),
+                mock.patch.object(rc, "STAGING_DIR", staging),
+                mock.patch.object(rc, "_text_length", lambda p: 99_999),
+            ]
+            for p in patches:
+                p.start()
+            try:
+                dry = rc.reingest_clipped(folder=inbox, apply=False)
+                self.assertEqual(dry["clipped"], 1)
+                self.assertFalse(dry["applied"])
+                # Dry run must not touch state.
+                self.assertIn(short, json.loads(bulk.read_text(encoding="utf-8"))["processed"])
+
+                stats = rc.reingest_clipped(folder=inbox, apply=True)
+            finally:
+                for p in patches:
+                    p.stop()
+
+            self.assertTrue(stats["applied"])
+            self.assertEqual(stats["state_entries_cleared"], 3)
+            self.assertEqual(stats["stage_files_removed"], 1)
+            bulk_state = json.loads(bulk.read_text(encoding="utf-8"))
+            self.assertNotIn(short, bulk_state["processed"])
+            self.assertIn("keepme", bulk_state["processed"])
+            self.assertNotIn(full, json.loads(fast.read_text(encoding="utf-8"))["committed"])
+            self.assertFalse((staging / f"{full}.json").exists())
+
+    def test_short_docs_not_flagged(self):
+        import scripts.reingest_clipped as rc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            inbox = Path(tmp)
+            (inbox / "short.pdf").write_bytes(b"%PDF short")
+            with mock.patch.object(rc, "_text_length", lambda p: 5_000):
+                stats = rc.reingest_clipped(folder=inbox, apply=True)
+            self.assertEqual(stats["clipped"], 0)
+            self.assertFalse(stats["applied"])
+
+
 if __name__ == "__main__":
     unittest.main()
