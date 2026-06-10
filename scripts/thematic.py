@@ -361,7 +361,7 @@ def store_thematic(theme, file_paths):
         click.echo("Analysing with Claude API...")
         prompt = _build_thematic_extraction_prompt(config)
         messages, doc_system = document_message_payload(prompt, pdf_path=src, text=text)
-        raw = _call_api(client, messages, max_tokens=16384,
+        raw = _call_api(client, messages, max_tokens=32768 if len(text) > 100_000 else 16384,
                         model=EXTRACTION_MODEL, system=doc_system)
 
         # d. Parse and save
@@ -762,7 +762,7 @@ def analyse_thematic(theme, file_path):
     click.echo("Extracting structured data from thematic note...")
     extraction_prompt = _build_thematic_extraction_prompt(config)
     messages, doc_system = document_message_payload(extraction_prompt, pdf_path=src, text=text)
-    raw_extraction = _call_api(client, messages, max_tokens=16384,
+    raw_extraction = _call_api(client, messages, max_tokens=32768 if len(text) > 100_000 else 16384,
                                model=EXTRACTION_MODEL, system=doc_system)
     new_note = _parse_json_response(raw_extraction)
 
