@@ -184,6 +184,41 @@ class ReingestClippedTests(unittest.TestCase):
             self.assertNotIn(full, json.loads(fast.read_text(encoding="utf-8"))["committed"])
             self.assertFalse((staging / f"{full}.json").exists())
 
+    def test_stale_schema_selection_by_staged_at(self):
+        import scripts.reingest_clipped as rc
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            staging = tmp / "staging"
+            staging.mkdir()
+            old_digest, new_digest = "a" * 64, "b" * 64
+            (staging / f"{old_digest}.json").write_text(json.dumps(
+                {"digest": old_digest, "file": "old.pdf", "staged_at": "2026-06-08T10:00:00+00:00"}), encoding="utf-8")
+            (staging / f"{new_digest}.json").write_text(json.dumps(
+                {"digest": new_digest, "file": "new.pdf", "staged_at": "2026-06-10T09:00:00+00:00"}), encoding="utf-8")
+            fast = tmp / "fast.json"
+            fast.write_text(json.dumps({"committed": {old_digest: {}, new_digest: {}}, "failed": {}}), encoding="utf-8")
+            bulk = tmp / "bulk.json"
+            bulk.write_text(json.dumps({"processed": {old_digest[:16]: {}}, "failed": {}}), encoding="utf-8")
+            sweep = tmp / "sweep.json"
+
+            with mock.patch.object(rc, "STAGING_DIR", staging), \
+                 mock.patch.object(rc, "FAST_STATE", fast), \
+                 mock.patch.object(rc, "BULK_STATE", bulk), \
+                 mock.patch.object(rc, "SWEEPER_STATE", sweep):
+                dry = rc.reingest_stale_schema(apply=False)
+                self.assertEqual(dry["stale"], 1)
+                self.assertEqual(dry["files"][0]["file"], "old.pdf")
+                stats = rc.reingest_stale_schema(apply=True)
+
+            self.assertTrue(stats["applied"])
+            self.assertEqual(stats["state_entries_cleared"], 2)
+            fast_state = json.loads(fast.read_text(encoding="utf-8"))
+            self.assertNotIn(old_digest, fast_state["committed"])
+            self.assertIn(new_digest, fast_state["committed"])
+            self.assertFalse((staging / f"{old_digest}.json").exists())
+            self.assertTrue((staging / f"{new_digest}.json").exists())
+
     def test_short_docs_not_flagged(self):
         import scripts.reingest_clipped as rc
 
