@@ -76,7 +76,7 @@ COMPANIES_PATH = PROJECT_ROOT / "config" / "companies.json"
 # parenthesised hybrids — is rejected; canonical entries get added by hand.
 _TICKER_FORMATS = (
     re.compile(r"^[A-Z]{1,6}$"),                          # US bare symbol
-    re.compile(r"^\d{3,6} (TT|TWO|JT|KS|HK|SP|CH)$"),     # Asia numeric + suffix
+    re.compile(r"^\d{3,6} (TT|JT|KS|HK|SP|CH)$"),         # Asia numeric + suffix
     re.compile(r"^[A-Z0-9]{1,6} (SP|AV|LN|TT)$"),         # lettered + suffix
 )
 
@@ -115,12 +115,17 @@ def _auto_add_tickers(proposals: list[dict]) -> list[str]:
         companies = json.load(f)
     added = []
     skipped = []
+    from scripts.tickers import canonicalize_ticker
+
     for p in proposals:
         ticker = (p.get("ticker") or "").strip()
         name = (p.get("name") or "").strip()
         market = (p.get("market") or "").strip().upper()
         if not ticker or not name:
             continue
+        # Research uses TW/TWO interchangeably with TT (and .suffix forms);
+        # log proposals under the canonical form so coverage never splits.
+        ticker = canonicalize_ticker(ticker) or ticker
         if ticker in companies:
             continue
         if not _valid_ticker_proposal(ticker, name, companies):

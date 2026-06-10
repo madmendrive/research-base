@@ -145,6 +145,13 @@ class TickerProposalGuardTests(unittest.TestCase):
         self.assertTrue(self._valid("148 HK", "Kingboard Holdings"))
         self.assertTrue(self._valid("002916 CH", "Shennan Circuits"))
 
+    def test_tw_and_two_suffixes_canonicalize_to_tt(self):
+        from scripts.tickers import canonicalize_ticker
+
+        for raw in ("2330 TW", "2330.TW", "6223 TWO", "6223.TWO"):
+            self.assertTrue(canonicalize_ticker(raw).endswith(" TT"), raw)
+        self.assertEqual(canonicalize_ticker("6223 TWO"), "6223 TT")
+
 
 class MetaScalarTests(unittest.TestCase):
     def test_list_author_coerced_to_string(self):
