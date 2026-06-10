@@ -140,79 +140,67 @@ class ExtractFileTextTests(unittest.TestCase):
 
 
 class CallApiTests(unittest.TestCase):
+    """call_api is streaming-only: Norton kills silent HTTPS connections at
+    ~60s, so non-streaming calls fail whenever generation runs long."""
+
     MODULES = (research, macro, thematic)
 
-    def test_success_returns_text(self):
+    @staticmethod
+    def _ok_stream(text="answer"):
+        return FakeStream([text], _response(stop_reason="end_turn"))
+
+    def test_success_returns_streamed_text(self):
         for module in self.MODULES:
-            client = FakeClient([_response("answer")])
+            client = FakeClient([], [self._ok_stream()])
             self.assertEqual(module._call_api(client, [{"role": "user", "content": "q"}]), "answer")
+            self.assertEqual(len(client.create_calls), 0)
 
     def test_model_override_and_default(self):
         for module in self.MODULES:
-            client = FakeClient([_response()])
+            client = FakeClient([], [self._ok_stream()])
             module._call_api(client, [], model="claude-sonnet-4-6")
-            self.assertEqual(client.create_calls[0]["model"], "claude-sonnet-4-6")
-            client = FakeClient([_response()])
+            self.assertEqual(client.stream_calls[0]["model"], "claude-sonnet-4-6")
+            client = FakeClient([], [self._ok_stream()])
             module._call_api(client, [])
-            self.assertEqual(client.create_calls[0]["model"], module.RESEARCH_MODEL)
+            self.assertEqual(client.stream_calls[0]["model"], module.RESEARCH_MODEL)
 
     def test_non_transient_error_raises_immediately(self):
         for module in self.MODULES:
-            client = FakeClient([ValueError("bad request")])
+            client = FakeClient([], [ValueError("bad request")])
             with self.assertRaises(ValueError):
                 module._call_api(client, [])
-            self.assertEqual(len(client.create_calls), 1)
+            self.assertEqual(len(client.stream_calls), 1)
 
     @mock.patch("time.sleep")
-    def test_transient_error_falls_back_to_streaming(self, _sleep):
-        client = FakeClient(
-            [_transient_error()],
-            [FakeStream(["par", "tial answer"], _response(stop_reason="end_turn"))],
-        )
+    def test_transient_error_retries_stream(self, _sleep):
+        client = FakeClient([], [_transient_error(), self._ok_stream("partial answer")])
         result = research._call_api(client, [{"role": "user", "content": "q"}])
         self.assertEqual(result, "partial answer")
-        self.assertEqual(len(client.stream_calls), 1)
-
-    @mock.patch("time.sleep")
-    def test_truncated_stream_retries(self, _sleep):
-        client = FakeClient(
-            [_transient_error(), _response("second try")],
-            [FakeStream(["trunc"], _response(stop_reason="max_tokens"))],
-        )
-        result = research._call_api(client, [])
-        self.assertEqual(result, "second try")
-
-    def test_nonstreaming_truncation_escalates_max_tokens(self):
-        client = FakeClient([
-            _response("cut off", stop_reason="max_tokens"),
-            _response("full answer"),
-        ])
-        result = research._call_api(client, [], max_tokens=8192)
-        self.assertEqual(result, "full answer")
-        self.assertEqual(client.create_calls[0]["max_tokens"], 8192)
-        self.assertEqual(client.create_calls[1]["max_tokens"], 16384)
+        self.assertEqual(len(client.stream_calls), 2)
 
     @mock.patch("time.sleep")
     def test_truncated_stream_escalates_max_tokens(self, _sleep):
-        client = FakeClient(
-            [_transient_error(), _response("second try")],
-            [FakeStream(["trunc"], _response(stop_reason="max_tokens"))],
-        )
+        client = FakeClient([], [
+            FakeStream(["trunc"], _response(stop_reason="max_tokens")),
+            self._ok_stream("full answer"),
+        ])
         result = research._call_api(client, [], max_tokens=8192)
-        self.assertEqual(result, "second try")
-        self.assertEqual(client.create_calls[1]["max_tokens"], 16384)
+        self.assertEqual(result, "full answer")
+        self.assertEqual(client.stream_calls[0]["max_tokens"], 8192)
+        self.assertEqual(client.stream_calls[1]["max_tokens"], 16384)
 
     def test_system_and_return_response_passthrough(self):
         system_blocks = [{"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}]
-        client = FakeClient([_response("with system")])
+        final = _response("with system")
+        client = FakeClient([], [FakeStream(["with system"], final)])
         resp = research._call_api(client, [], system=system_blocks, return_response=True)
-        self.assertEqual(resp.content[0].text, "with system")
-        self.assertEqual(client.create_calls[0]["system"], system_blocks)
+        self.assertIs(resp, final)
+        self.assertEqual(client.stream_calls[0]["system"], system_blocks)
 
     def test_no_system_key_when_absent(self):
-        client = FakeClient([_response()])
+        client = FakeClient([], [self._ok_stream()])
         research._call_api(client, [])
-        self.assertNotIn("system", client.create_calls[0])
+        self.assertNotIn("system", client.stream_calls[0])
 
 
 class NativePdfPayloadTests(unittest.TestCase):

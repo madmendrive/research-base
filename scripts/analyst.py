@@ -139,7 +139,9 @@ def _call_openai(
             or os.environ.get("OPENAI_REASONING_EFFORT")
             or "high"
         }
-    if os.environ.get("ANALYST_OPENAI_STREAM", "0").strip().lower() in {"1", "true", "yes"}:
+    # Default to streaming — Norton kills silent HTTPS connections at ~60s,
+    # and gpt-5.x reasoning runs routinely exceed that before the first byte.
+    if os.environ.get("ANALYST_OPENAI_STREAM", "1").strip().lower() in {"1", "true", "yes"}:
         with client.responses.stream(**kwargs) as stream:
             response = stream.get_final_response()
     else:
@@ -160,18 +162,20 @@ def _call_anthropic(
     timeout: float | None = None,
     max_retries: int | None = None,
 ) -> str:
-    from scripts.llm_provider import cached_system_block, get_client
+    from scripts.llm_provider import cached_system_block, call_api, get_client
 
     timeout = timeout if timeout is not None else _env_float("ANALYST_TIMEOUT", 600.0)
     max_retries = max_retries if max_retries is not None else _env_int("ANALYST_PROVIDER_MAX_RETRIES", 1)
     client = get_client("anthropic", timeout=timeout, max_retries=max_retries)
-    resp = client.messages.create(
-        model=model,
+    # call_api streams — required: synthesis takes >60s and Norton kills
+    # silent (non-streaming) connections at about that mark.
+    return call_api(
+        client,
+        [{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
         system=cached_system_block(ANALYST_SYSTEM_PROMPT),
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text.strip()
+        model=model,
+    ).strip()
 
 
 def _call_claude(prompt: str, max_tokens: int = 4000) -> str:

@@ -752,16 +752,16 @@ Sources:
 {chr(10).join(context_blocks)}
 """
     try:
-        from anthropic import Anthropic
+        from scripts.llm_provider import call_api, get_client
 
         model = os.environ.get("KB_SYNTHESIS_MODEL", "claude-sonnet-4-6")
-        client = Anthropic(timeout=180.0, max_retries=3)
-        resp = client.messages.create(
-            model=model,
+        client = get_client("anthropic", timeout=180.0, max_retries=3)
+        answer = call_api(
+            client,
+            [{"role": "user", "content": prompt}],
             max_tokens=3000,
-            messages=[{"role": "user", "content": prompt}],
+            model=model,
         )
-        answer = resp.content[0].text
     except Exception as e:
         answer = (
             f"KB retrieval succeeded, but synthesis failed: {type(e).__name__}: {e}\n\n"
