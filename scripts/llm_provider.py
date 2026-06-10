@@ -124,6 +124,12 @@ def parse_json_loose(text: str):
     return json.loads(text)
 
 
+# Truncation retries double max_tokens up to this cap (safe on all current
+# Claude models). Long primers can legitimately need >16K output for the
+# enriched extraction schema.
+MAX_TOKENS_ESCALATION_CAP = 32_768
+
+
 def call_api(client, messages, max_tokens=8192, system=None, return_response=False,
              model=None, default_model="claude-opus-4-7"):
     """Anthropic call with transient-error retry + streaming fallback.
@@ -134,18 +140,35 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
             caching) or a plain string.
     return_response: return the raw response object instead of just the text
                      (so callers can inspect usage metadata).
+
+    Output truncation (stop_reason == max_tokens) on either the create or the
+    streaming path retries with doubled max_tokens, capped — a truncated
+    response would otherwise just fail JSON parsing downstream.
     """
     chosen_model = model or default_model
+    current_max = max_tokens
+
+    def _escalate():
+        nonlocal current_max
+        bumped = min(current_max * 2, MAX_TOKENS_ESCALATION_CAP)
+        if bumped > current_max:
+            print(f"  output hit max_tokens={current_max}, retrying with {bumped}...")
+            current_max = bumped
+        return bumped
+
     for attempt in range(3):
         try:
             kwargs = {
                 "model": chosen_model,
-                "max_tokens": max_tokens,
+                "max_tokens": current_max,
                 "messages": messages,
             }
             if system is not None:
                 kwargs["system"] = system
             response = client.messages.create(**kwargs)
+            if getattr(response, "stop_reason", None) == "max_tokens" and attempt < 2:
+                _escalate()
+                continue
             if return_response:
                 return response
             return response.content[0].text
@@ -160,7 +183,7 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
                     try:
                         stream_kwargs = {
                             "model": chosen_model,
-                            "max_tokens": max_tokens,
+                            "max_tokens": current_max,
                             "messages": messages,
                         }
                         if system is not None:
@@ -170,8 +193,11 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
                             for text in stream.text_stream:
                                 chunks.append(text)
                             final = stream.get_final_message()
-                        # Truncated streams (max_tokens hit, connection drop) must not
-                        # return partial chunks — fall through to the next retry.
+                        # Truncated streams must not return partial chunks — escalate
+                        # the budget and fall through to the next retry.
+                        if final.stop_reason == "max_tokens":
+                            _escalate()
+                            continue
                         if final.stop_reason not in ("end_turn", "stop_sequence"):
                             print(f"  stream stop_reason={final.stop_reason!r}, retrying...")
                             continue

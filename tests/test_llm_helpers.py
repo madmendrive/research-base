@@ -182,6 +182,26 @@ class CallApiTests(unittest.TestCase):
         result = research._call_api(client, [])
         self.assertEqual(result, "second try")
 
+    def test_nonstreaming_truncation_escalates_max_tokens(self):
+        client = FakeClient([
+            _response("cut off", stop_reason="max_tokens"),
+            _response("full answer"),
+        ])
+        result = research._call_api(client, [], max_tokens=8192)
+        self.assertEqual(result, "full answer")
+        self.assertEqual(client.create_calls[0]["max_tokens"], 8192)
+        self.assertEqual(client.create_calls[1]["max_tokens"], 16384)
+
+    @mock.patch("time.sleep")
+    def test_truncated_stream_escalates_max_tokens(self, _sleep):
+        client = FakeClient(
+            [_transient_error(), _response("second try")],
+            [FakeStream(["trunc"], _response(stop_reason="max_tokens"))],
+        )
+        result = research._call_api(client, [], max_tokens=8192)
+        self.assertEqual(result, "second try")
+        self.assertEqual(client.create_calls[1]["max_tokens"], 16384)
+
     def test_system_and_return_response_passthrough(self):
         system_blocks = [{"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}]
         client = FakeClient([_response("with system")])

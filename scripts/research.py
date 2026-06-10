@@ -226,9 +226,10 @@ def store_research(ticker, file_path):
     client = Anthropic(max_retries=3, timeout=600.0)
     prompt = _build_extraction_prompt(company_name, ticker)
     messages, doc_system = document_message_payload(prompt, pdf_path=src, text=text)
+    extract_tokens = 32768 if len(text) > 100_000 else 16384
     note_data = None
     for json_attempt in range(3):
-        raw = _call_api(client, messages, max_tokens=16384,
+        raw = _call_api(client, messages, max_tokens=extract_tokens,
                         model=EXTRACTION_MODEL, system=doc_system)
         try:
             note_data = _parse_json_response(raw)
@@ -839,7 +840,7 @@ def analyse_research(ticker, file_path=None, headline=None):
     click.echo("Extracting structured data from new research...")
     extraction_prompt = _build_extraction_prompt(company_name, ticker)
     messages, doc_system = document_message_payload(extraction_prompt, pdf_path=src, text=text)
-    raw_extraction = _call_api(client, messages, max_tokens=16384,
+    raw_extraction = _call_api(client, messages, max_tokens=32768 if len(text) > 100_000 else 16384,
                                model=EXTRACTION_MODEL, system=doc_system)
     new_research = _parse_json_response(raw_extraction)
 
