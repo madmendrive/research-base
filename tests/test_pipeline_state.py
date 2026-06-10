@@ -116,6 +116,36 @@ class BulkIngestSeesSweeperStateTests(unittest.TestCase):
                 self.assertEqual(bulk_ingest._sweeper_hashes(), {"feed42"})
 
 
+class TickerProposalGuardTests(unittest.TestCase):
+    COMPANIES = {
+        "2408 TT": {"name": "Nanya Technology Corp"},
+        "5274 TT": {"name": "ASPEED Technology Inc"},
+        "2317 TT": {"name": "Hon Hai Precision Industry"},
+    }
+
+    def _valid(self, ticker, name):
+        from scripts.bulk_ingest import _valid_ticker_proposal
+
+        return _valid_ticker_proposal(ticker, name, self.COMPANIES)
+
+    def test_rejects_placeholders_and_bad_formats(self):
+        self.assertFalse(self._valid("MAXLINEAR_PLACEHOLDER", "MaxLinear (placeholder)"))
+        self.assertFalse(self._valid("2049.TW", "Hiwin Corp."))
+        self.assertFalse(self._valid("KINGBOARD (0148.HK)", "Kingboard Holdings"))
+        self.assertFalse(self._valid("Hon Hai", "Hon Hai Precision"))
+        self.assertFalse(self._valid("ZDT", "ZDT Technology (placeholder)"))
+
+    def test_rejects_duplicates_of_existing_names(self):
+        self.assertFalse(self._valid("NANYA", "Nanya Technology Corporation"))
+        self.assertFalse(self._valid("ASPEED", "Aspeed Technology Inc"))
+
+    def test_accepts_well_formed_new_tickers(self):
+        self.assertTrue(self._valid("2382 TT", "Quanta Computer"))
+        self.assertTrue(self._valid("ALAB", "Astera Labs"))
+        self.assertTrue(self._valid("148 HK", "Kingboard Holdings"))
+        self.assertTrue(self._valid("002916 CH", "Shennan Circuits"))
+
+
 class MetaScalarTests(unittest.TestCase):
     def test_list_author_coerced_to_string(self):
         from scripts.research_memory import _meta
