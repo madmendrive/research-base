@@ -210,11 +210,22 @@ def store_research(ticker, file_path):
     if not src.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    # a. Copy file with timestamped prefix
-    dest_name = f"{_today_prefix()}_{src.name}"
-    dest = notes_dir / dest_name
-    shutil.copy2(src, dest)
-    click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
+    # a. Copy file with timestamped prefix — unless an identical copy is
+    # already stored under any date prefix
+    from scripts.dedup_notes import existing_identical_copy
+    existing = existing_identical_copy(notes_dir, src)
+    if existing is not None and existing.with_name(existing.name + ".json").exists():
+        click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
+        return
+    if existing is not None:
+        dest_name = existing.name
+        dest = existing
+        click.echo(f"Reusing existing copy {dest.relative_to(PROJECT_ROOT)} (no extraction JSON yet).")
+    else:
+        dest_name = f"{_today_prefix()}_{src.name}"
+        dest = notes_dir / dest_name
+        shutil.copy2(src, dest)
+        click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
 
     # b. Extract text
     click.echo(f"Extracting text from {src.name}...")
@@ -874,12 +885,19 @@ def analyse_research(ticker, file_path=None, headline=None):
 
     # f. Ask to store
     if click.confirm("\nWould you like to add this research to the stored research base?"):
-        # Copy file
+        # Copy file — reuse an identical already-stored copy if present
         notes_dir = research_dir / "notes"
-        dest_name = f"{_today_prefix()}_{src.name}"
-        dest = notes_dir / dest_name
-        shutil.copy2(src, dest)
-        click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
+        from scripts.dedup_notes import existing_identical_copy
+        existing = existing_identical_copy(notes_dir, src)
+        if existing is not None:
+            dest_name = existing.name
+            dest = existing
+            click.echo(f"Identical file already stored as {dest.relative_to(PROJECT_ROOT)} — reusing it.")
+        else:
+            dest_name = f"{_today_prefix()}_{src.name}"
+            dest = notes_dir / dest_name
+            shutil.copy2(src, dest)
+            click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
 
         # Save extraction JSON
         json_path = notes_dir / f"{dest_name}.json"

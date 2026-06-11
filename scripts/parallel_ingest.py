@@ -370,7 +370,14 @@ def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = F
     dest, status = _destination_for(triage, source)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():
-        shutil.copy2(source, dest)
+        # A re-commit on a later day gets a new date prefix; reuse an existing
+        # byte-identical copy instead of storing a second one.
+        from scripts.dedup_notes import existing_identical_copy
+        existing = existing_identical_copy(dest.parent, source)
+        if existing is not None:
+            dest = existing
+        else:
+            shutil.copy2(source, dest)
 
     json_path = None
     if status != "pending_review":

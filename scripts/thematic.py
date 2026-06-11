@@ -346,11 +346,21 @@ def store_thematic(theme, file_paths):
             click.echo(f"File not found: {file_path}")
             continue
 
-        # a. Copy file
-        dest_name = f"{_today_prefix()}_{src.name}"
-        dest = notes_dir / dest_name
-        shutil.copy2(src, dest)
-        click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
+        # a. Copy file — unless an identical copy is already stored
+        from scripts.dedup_notes import existing_identical_copy
+        existing = existing_identical_copy(notes_dir, src)
+        if existing is not None and existing.with_name(existing.name + ".json").exists():
+            click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
+            continue
+        if existing is not None:
+            dest_name = existing.name
+            dest = existing
+            click.echo(f"Reusing existing copy {dest.relative_to(PROJECT_ROOT)} (no extraction JSON yet).")
+        else:
+            dest_name = f"{_today_prefix()}_{src.name}"
+            dest = notes_dir / dest_name
+            shutil.copy2(src, dest)
+            click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
 
         # b. Extract text
         click.echo(f"Extracting text from {src.name}...")
@@ -822,10 +832,17 @@ def analyse_thematic(theme, file_path):
     # g. Ask to store
     if click.confirm("\nWould you like to add this to the stored thematic research base?"):
         notes_dir = theme_dir / "notes"
-        dest_name = f"{_today_prefix()}_{src.name}"
-        dest = notes_dir / dest_name
-        shutil.copy2(src, dest)
-        click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
+        from scripts.dedup_notes import existing_identical_copy
+        existing = existing_identical_copy(notes_dir, src)
+        if existing is not None:
+            dest_name = existing.name
+            dest = existing
+            click.echo(f"Identical file already stored as {dest.relative_to(PROJECT_ROOT)} — reusing it.")
+        else:
+            dest_name = f"{_today_prefix()}_{src.name}"
+            dest = notes_dir / dest_name
+            shutil.copy2(src, dest)
+            click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
 
         json_path = notes_dir / f"{dest_name}.json"
         with open(json_path, "w") as f:

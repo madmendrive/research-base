@@ -540,6 +540,28 @@ def heartbeat_cmd(agenda, once):
     heartbeat(agenda_path=agenda, run_once=once)
 
 
+@cli.command("dedup-notes")
+@click.option("--apply", "apply_changes", is_flag=True,
+              help="Quarantine duplicate files and prune their KB/research rows. "
+                   "Default is a dry-run that only writes a manifest.")
+def dedup_notes_cmd(apply_changes):
+    """Find byte-identical duplicate note PDFs; quarantine extras with --apply.
+
+    Only deduplicates copies that resolve to the same canonical subject; the
+    richest extraction in each group is preserved on the kept copy. Groups
+    spanning different subjects are reported in the manifest, not touched.
+    """
+    from scripts.dedup_notes import run_dedup
+    outcome = run_dedup(apply=apply_changes)
+    plan = outcome["plan"]
+    click.echo(json.dumps({k: v for k, v in plan.items() if k != "groups"},
+                          indent=2, ensure_ascii=False))
+    if outcome["applied"]:
+        applied = {k: v for k, v in outcome["applied"].items() if k != "db_dump"}
+        click.echo(json.dumps(applied, indent=2, ensure_ascii=False))
+    click.echo(f"Manifest: {outcome['manifest_path']}")
+
+
 @cli.command("kb-reindex")
 @click.option("--source", default="all", show_default=True,
               type=click.Choice(["all", "research", "ir", "filings", "claude", "email", "headlines", "company", "skills", "notes"],
