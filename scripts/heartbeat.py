@@ -195,7 +195,10 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
 
         headline_times = agenda.get("headline_sweep_times") or []
         if headline_times:
-            headline_due = _scheduled_slot_due(now, list(headline_times), state, "headline", catch_up=False)
+            # catch_up: a slot missed while the heartbeat was down (reboot,
+            # crash) fires once on startup instead of being silently dropped.
+            # Bounded to today — run keys are per-date.
+            headline_due = _scheduled_slot_due(now, list(headline_times), state, "headline", catch_up=True)
             if headline_due:
                 scheduled, run_key = headline_due
                 enqueue_job(

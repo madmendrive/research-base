@@ -95,6 +95,200 @@ give a clear rating or actionability view, e.g. "2.5/5 as a buy today", and
 explain why. Do not hide behind neutrality.
 """
 
+ANALYST_TOOLS_PROMPT = """
+
+Pipeline tools:
+You can operate the user's research pipeline, not just answer from context.
+The always-on scheduler (HKT) runs headline sweeps / Tech Brief digests at
+02:00, 08:00, 14:00 and 20:00; email sweeps at 01:00 and 13:00; research-inbox
+folder scans at 08:30 and 20:30; and a nightly KB + research-memory reindex at
+03:00. When the user asks you to run, re-run, trigger, or catch up one of
+these (e.g. "run the tech brief", "run the 8am sweep that was missed",
+"check my research email"), call run_pipeline_job — do not answer the request
+as a research question and do not ask which analysis they mean. When the user
+asks about pipeline/digest/job state, call pipeline_status. When the provided
+research context is missing something you need, call search_kb for targeted
+follow-up retrieval before answering. After queueing a job, confirm briefly
+what was queued and when results will arrive; don't speculate about its
+output.
+"""
+
+ANALYST_TOOLS = [
+    {
+        "name": "run_pipeline_job",
+        "description": (
+            "Queue a research-pipeline job on the single-writer worker. Call this whenever "
+            "the user asks to run, re-run, trigger, or catch up a pipeline task. Mapping: "
+            "Tech Brief / headline sweep -> headline_sweep; research email check -> "
+            "email_sweep; scan the research-inbox folder for new PDFs -> folder_scan; "
+            "refresh the searchable KB index -> kb_reindex; rebuild structured research "
+            "memory (estimates/views tables) -> research_map_reindex. The job runs right "
+            "after this answer is delivered and its results are pushed to the user on "
+            "Telegram."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["headline_sweep", "email_sweep", "folder_scan",
+                             "kb_reindex", "research_map_reindex"],
+                },
+                "window_hours": {
+                    "type": "integer",
+                    "description": "headline_sweep only: hours of headlines the digest covers "
+                                   "(default 6). Use a larger window to catch up missed runs, "
+                                   "e.g. 12 if two slots were missed.",
+                },
+            },
+            "required": ["kind"],
+        },
+    },
+    {
+        "name": "pipeline_status",
+        "description": (
+            "Report recent pipeline jobs and their states (queued/running/succeeded/failed, "
+            "timestamps, errors). Call this when the user asks whether something ran, what "
+            "the pipeline is doing, or why a digest/brief didn't arrive."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "How many recent jobs to list (default 12)."},
+            },
+        },
+    },
+    {
+        "name": "search_kb",
+        "description": (
+            "Run an additional targeted search over the local research knowledge base. Call "
+            "this when the supplied context lacks something specific you need — a ticker, "
+            "author, metric, or document the question references."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "description": "Max results (default 8)."},
+            },
+            "required": ["query"],
+        },
+    },
+]
+
+_ANALYST_JOB_PAYLOADS = {
+    "headline_sweep": {"notify": True, "window_hours": 6, "max_digest_items": 20},
+    "email_sweep": {"analyse_attachments": False, "extract_research": True, "notify": True},
+    "folder_scan": {"notify": True},
+    "kb_reindex": {"source": "all", "notify": True},
+    "research_map_reindex": {"notify": True},
+}
+
+
+def _execute_analyst_tool(name: str, tool_input: dict) -> str:
+    if name == "run_pipeline_job":
+        kind = str(tool_input.get("kind") or "")
+        if kind not in _ANALYST_JOB_PAYLOADS:
+            raise ValueError(f"unsupported job kind: {kind!r}")
+        from datetime import datetime
+
+        from scripts.jobs import enqueue_job
+
+        payload = dict(_ANALYST_JOB_PAYLOADS[kind])
+        if kind == "headline_sweep" and tool_input.get("window_hours"):
+            payload["window_hours"] = max(1, min(48, int(tool_input["window_hours"])))
+        job_id = enqueue_job(
+            kind, payload,
+            dedupe_key=f"analyst:{kind}:{datetime.now().strftime('%Y-%m-%dT%H:%M')}",
+        )
+        log.info("analyst tool queued %s as job %s", kind, job_id)
+        return (
+            f"Queued {kind} as job #{job_id} with payload {json.dumps(payload)}. The worker "
+            f"runs it right after this answer is delivered; results arrive in Telegram."
+        )
+    if name == "pipeline_status":
+        limit = max(1, min(50, int(tool_input.get("limit") or 12)))
+        conn = kb.connect()
+        try:
+            rows = conn.execute(
+                "SELECT id, kind, status, created_at, finished_at, substr(last_error, 1, 160) AS err "
+                "FROM jobs ORDER BY id DESC LIMIT ?", (limit,),
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return "No jobs recorded yet."
+        lines = []
+        for r in rows:
+            line = (f"#{r['id']} {r['kind']} — {r['status']} "
+                    f"(created {r['created_at']}, finished {r['finished_at'] or '—'})")
+            if r["err"]:
+                line += f" error: {r['err']}"
+            lines.append(line)
+        return "Recent jobs, newest first:\n" + "\n".join(lines)
+    if name == "search_kb":
+        query = str(tool_input.get("query") or "").strip()
+        if not query:
+            raise ValueError("search_kb requires a query")
+        limit = max(1, min(20, int(tool_input.get("limit") or 8)))
+        results = kb.search(query, limit=limit)
+        if not results:
+            return "No KB hits for that query."
+        return _private_context(results, max_chars_per_item=800)
+    raise ValueError(f"unknown tool: {name!r}")
+
+
+def _call_claude_agentic(prompt: str, max_tokens: int = 4000) -> str:
+    """Analyst synthesis with pipeline tools (manual tool-use loop).
+
+    Anthropic-only — the OpenAI provider path and any failure fall back to the
+    plain single-shot synthesis so questions always get answered.
+    """
+    provider = os.environ.get("ANALYST_PROVIDER", "anthropic").lower().strip()
+    disabled = os.environ.get("ANALYST_TOOLS", "1").strip().lower() in {"0", "false", "no"}
+    if provider in {"openai", "gpt"} or disabled:
+        return _call_claude(prompt)
+    from scripts.llm_provider import cached_system_block, call_api, get_client
+
+    model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-7")
+    client = get_client(
+        "anthropic",
+        timeout=_env_float("ANALYST_TIMEOUT", 600.0),
+        max_retries=_env_int("ANALYST_PROVIDER_MAX_RETRIES", 1),
+    )
+    system = cached_system_block(ANALYST_SYSTEM_PROMPT + ANALYST_TOOLS_PROMPT)
+    messages = [{"role": "user", "content": prompt}]
+    try:
+        for _ in range(6):
+            final = call_api(
+                client, messages, max_tokens=max_tokens, system=system,
+                model=model, tools=ANALYST_TOOLS, return_response=True,
+            )
+            if final.stop_reason != "tool_use":
+                text = "".join(b.text for b in final.content if b.type == "text").strip()
+                if text:
+                    return text
+                break
+            messages.append({"role": "assistant", "content": final.content})
+            results = []
+            for block in final.content:
+                if block.type != "tool_use":
+                    continue
+                try:
+                    output = _execute_analyst_tool(block.name, dict(block.input or {}))
+                    results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
+                except Exception as e:
+                    log.exception("analyst tool %s failed", block.name)
+                    results.append({
+                        "type": "tool_result", "tool_use_id": block.id,
+                        "content": f"{type(e).__name__}: {e}", "is_error": True,
+                    })
+            messages.append({"role": "user", "content": results})
+        log.warning("agentic analyst loop ended without a final answer; falling back")
+    except Exception:
+        log.exception("agentic analyst path failed; falling back to plain synthesis")
+    return _call_claude(prompt)
+
 
 def _env_float(name: str, default: float) -> float:
     try:
@@ -628,13 +822,19 @@ for stocks/themes. Attribute KB claims to the specific source/author when known.
 Attribute current web claims to their web source when used. Do not append a raw
 source list.
 """
-            return _call_claude(prompt)
-        return (
-            "I do not have enough relevant material in the research base yet. "
-            "My next step would be to ingest the relevant company filings, earnings "
-            "deck/transcript, your notes, and any sellside/Substack pieces before "
-            "giving a high-conviction investment view."
-        )
+            return _call_claude_agentic(prompt)
+        # No retrieved context at all. Still goes through the agentic path:
+        # the message may be an instruction (run a sweep, check job status)
+        # rather than a research question.
+        return _call_claude_agentic(f"""\
+User query:
+{question}
+
+No local KB, structured research-memory, or web context matched this query.
+If this is a pipeline instruction or status question, use your tools. If it is
+a research question, say plainly that the research base has no relevant
+material yet and what you would ingest next — do not fabricate a view.
+""")
 
     prompt = f"""\
 User query:
@@ -659,7 +859,7 @@ Attribute current web claims to their web source when used. Do not append a raw
 source list. Do not say you are using "chunks" or "retrieval".
 """
     try:
-        return _call_claude(prompt)
+        return _call_claude_agentic(prompt)
     except Exception as e:
         top = results[0]
         return (
