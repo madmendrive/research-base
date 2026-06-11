@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -385,15 +386,40 @@ def _process_job(job: dict) -> str:
     raise ValueError(f"unknown job kind {kind}")
 
 
+def _retry_locked(fn, *args, attempts: int = 6, wait_seconds: int = 5):
+    """Run a queue-state write, retrying through transient 'database is
+    locked' errors. Another process (CLI kb-reindex, backfills) can hold the
+    write lock past our busy timeout; queue bookkeeping must wait it out
+    rather than crash the daemon."""
+    for attempt in range(attempts):
+        try:
+            return fn(*args)
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() or attempt == attempts - 1:
+                raise
+            print(f"job queue write locked ({e}); retrying in {wait_seconds}s")
+            time.sleep(wait_seconds)
+
+
 def worker(run_once: bool = False, sleep_seconds: int = 5) -> None:
     conn = kb.connect()
     _init_jobs(conn)
     try:
         while True:
-            recovered = _recover_stale_running(conn)
-            if recovered:
-                print(f"recovered {recovered} stale running job(s)")
-            job = _claim_next(conn)
+            try:
+                recovered = _recover_stale_running(conn)
+                if recovered:
+                    print(f"recovered {recovered} stale running job(s)")
+                job = _claim_next(conn)
+            except sqlite3.OperationalError as e:
+                # A poll-time lock (concurrent reindex/backfill process) must
+                # not kill the worker — 2026-06-11 it did, and every queued
+                # job silently stalled until a manual restart.
+                if run_once:
+                    raise
+                print(f"job queue poll failed ({e}); retrying in {sleep_seconds}s")
+                time.sleep(sleep_seconds)
+                continue
             if not job:
                 if run_once:
                     return
@@ -401,11 +427,11 @@ def worker(run_once: bool = False, sleep_seconds: int = 5) -> None:
                 continue
             try:
                 result = _process_job(job)
-                _complete(conn, int(job["id"]))
+                _retry_locked(_complete, conn, int(job["id"]))
                 print(f"[job {job['id']}] {job['kind']} ok: {result}")
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
-                _fail(conn, job, err)
+                _retry_locked(_fail, conn, job, err)
                 print(f"[job {job['id']}] {job['kind']} failed: {err}")
                 if run_once:
                     raise
