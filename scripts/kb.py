@@ -384,10 +384,22 @@ def index_text(
     now = _now()
 
     existing = conn.execute(
-        "SELECT id, hash FROM documents WHERE source_uri = ?",
+        "SELECT id, hash, metadata_json FROM documents WHERE source_uri = ?",
         (source_uri,),
     ).fetchone()
     if existing and existing["hash"] == h and not force:
+        # Refresh the stat stamp on unchanged docs so future runs can skip
+        # them without re-extracting text (see _stat_unchanged).
+        if "file_mtime_ns" in metadata:
+            stored = _loads(existing["metadata_json"], {})
+            if (stored.get("file_mtime_ns"), stored.get("file_size")) != (
+                    metadata.get("file_mtime_ns"), metadata.get("file_size")):
+                stored.update({"file_mtime_ns": metadata["file_mtime_ns"],
+                               "file_size": metadata["file_size"]})
+                conn.execute(
+                    "UPDATE documents SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                    (_json(stored), now, existing["id"]))
+                conn.commit()
         if close_conn:
             conn.close()
         return {"indexed": False, "document_id": existing["id"], "chunks": 0, "reason": "unchanged"}
@@ -504,6 +516,27 @@ def index_text(
     return {"indexed": True, "document_id": doc_id, "chunks": len(chunks), "reason": "updated" if existing else "new"}
 
 
+def _file_stat_meta(path: Path) -> dict:
+    st = path.stat()
+    return {"file_mtime_ns": st.st_mtime_ns, "file_size": st.st_size}
+
+
+def _stat_unchanged(conn: sqlite3.Connection, path: Path, stat_meta: dict) -> bool:
+    """True when the indexed document's recorded mtime+size match the file.
+
+    Lets reindex runs skip a file without opening it; text extraction (the
+    expensive step for PDFs) only happens for new or modified files.
+    """
+    row = conn.execute(
+        "SELECT metadata_json FROM documents WHERE source_path = ?", (str(path),)
+    ).fetchone()
+    if not row:
+        return False
+    stored = _loads(row["metadata_json"], {})
+    return (stored.get("file_mtime_ns") == stat_meta["file_mtime_ns"]
+            and stored.get("file_size") == stat_meta["file_size"])
+
+
 def index_file(
     path: str | Path,
     source_type: str | None = None,
@@ -517,6 +550,17 @@ def index_file(
         raise FileNotFoundError(path)
     if path.suffix.lower() not in SUPPORTED_SUFFIXES:
         return {"indexed": False, "chunks": 0, "reason": "unsupported_suffix", "path": str(path)}
+    stat_meta = _file_stat_meta(path)
+    if not force:
+        close_check = conn is None
+        check_conn = conn or connect()
+        try:
+            if _stat_unchanged(check_conn, path, stat_meta):
+                return {"indexed": False, "chunks": 0, "reason": "unchanged_stat", "path": str(path)}
+        finally:
+            if close_check:
+                check_conn.close()
+    metadata = {**(metadata or {}), **stat_meta}
     source_type = source_type or source_type_for_path(path)
     text = extract_text_from_file(path)
     title = metadata.get("title") if metadata else None
@@ -578,22 +622,76 @@ def _iter_files_for_source(source: str) -> Iterable[Path]:
                 yield path
 
 
-def reindex_source(source: str = "all", force: bool = False, limit: int = 0, embed: bool = True) -> dict:
+def _extract_worker(path_str: str) -> str:
+    """Top-level so ProcessPoolExecutor can pickle it (Windows spawn)."""
+    return extract_text_from_file(path_str)
+
+
+def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
+                   embed: bool = True, parallel: int = 1) -> dict:
     conn = connect()
     stats = {"source": source, "scanned": 0, "indexed": 0, "skipped": 0, "errors": []}
     try:
+        # Cheap stat-based pass first: unchanged files are skipped without
+        # being opened. `limit` caps files that actually need work.
+        pending: list[Path] = []
         for path in _iter_files_for_source(source):
-            if limit and stats["scanned"] >= limit:
-                break
             stats["scanned"] += 1
             try:
-                result = index_file(path, force=force, embed=embed, conn=conn)
-                if result.get("indexed"):
-                    stats["indexed"] += 1
-                else:
+                if not force and _stat_unchanged(conn, path, _file_stat_meta(path)):
                     stats["skipped"] += 1
-            except Exception as e:
+                    continue
+            except OSError as e:
                 stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
+                continue
+            pending.append(path)
+            if limit and len(pending) >= limit:
+                break
+
+        if parallel <= 1:
+            for path in pending:
+                try:
+                    result = index_file(path, force=force, embed=embed, conn=conn)
+                    if result.get("indexed"):
+                        stats["indexed"] += 1
+                    else:
+                        stats["skipped"] += 1
+                except Exception as e:
+                    stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
+            return stats
+
+        # Parallel: text extraction (CPU-bound pdfplumber) in worker processes,
+        # indexing + embedding in this process (single SQLite writer). Batched
+        # submission keeps extracted texts from piling up in memory.
+        from concurrent import futures as _futures
+
+        batch_size = max(parallel * 8, 32)
+        with _futures.ProcessPoolExecutor(max_workers=parallel) as pool:
+            for start in range(0, len(pending), batch_size):
+                batch = pending[start:start + batch_size]
+                future_map = {pool.submit(_extract_worker, str(p)): p for p in batch}
+                for fut in _futures.as_completed(future_map):
+                    path = future_map[fut]
+                    try:
+                        text = fut.result()
+                        source_type = source_type_for_path(path)
+                        result = index_text(
+                            title=path.stem,
+                            text=text,
+                            source_type=source_type,
+                            source_uri=_source_uri_for_file(path, source_type),
+                            source_path=str(path),
+                            metadata=_file_stat_meta(path),
+                            force=force,
+                            embed=embed,
+                            conn=conn,
+                        )
+                        if result.get("indexed"):
+                            stats["indexed"] += 1
+                        else:
+                            stats["skipped"] += 1
+                    except Exception as e:
+                        stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
     finally:
         conn.close()
     return stats

@@ -568,13 +568,17 @@ def dedup_notes_cmd(apply_changes):
                                 case_sensitive=False),
               help="Corpus slice to index.")
 @click.option("--force", is_flag=True, help="Re-index documents even if their hash is unchanged.")
-@click.option("--limit", default=0, type=int, help="Index at most N files (0 = unlimited).")
+@click.option("--limit", default=0, type=int,
+              help="Index at most N new/changed files (0 = unlimited); unchanged files don't count.")
 @click.option("--no-embed", is_flag=True,
               help="Skip embedding creation and build only SQLite metadata/FTS.")
-def kb_reindex_cmd(source, force, limit, no_embed):
+@click.option("--parallel", default=1, type=int, show_default=True,
+              help="Worker processes for text extraction (backfills).")
+def kb_reindex_cmd(source, force, limit, no_embed, parallel):
     """Build or refresh the local KB index over data/."""
     from scripts.kb import reindex_source
-    stats = reindex_source(source=source, force=force, limit=limit, embed=not no_embed)
+    stats = reindex_source(source=source, force=force, limit=limit,
+                           embed=not no_embed, parallel=parallel)
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
