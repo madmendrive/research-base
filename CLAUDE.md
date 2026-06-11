@@ -249,6 +249,21 @@ ANALYST_PROVIDER=openai; disable with ANALYST_TOOLS=0. Missed headline
 slots also self-heal: heartbeat catch_up runs same-day missed slots on
 startup.
 
+## Worker lanes
+
+Two worker processes run in parallel lanes so analyst questions never queue
+behind multi-minute document ingests:
+
+```powershell
+python main.py worker --exclude-kinds analyst_question   # heavy lane (serial: ingests, sweeps, reindexes)
+python main.py worker --kinds analyst_question           # interactive lane (read-mostly)
+```
+
+The heavy lane must stay a single process — ingest jobs rebuild per-entity
+summary files and would race each other. The claim query is one atomic
+UPDATE, so lanes partition the queue safely. The poll loop survives
+transient `database is locked` from concurrent CLI reindexes/backfills.
+
 ## Duplicate handling
 
 Store paths skip re-storing a byte-identical file that already exists in the
