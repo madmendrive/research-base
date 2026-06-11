@@ -109,6 +109,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_documents_source_type ON documents(source_type);
         CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+        CREATE INDEX IF NOT EXISTS idx_documents_source_path ON documents(source_path);
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
         """
     )
@@ -627,10 +628,50 @@ def _extract_worker(path_str: str) -> str:
     return extract_text_from_file(path_str)
 
 
+FAILURE_STAMPS_PATH = KB_DIR / "extract_failure_stamps.json"
+
+
+def _load_failure_stamps() -> dict:
+    """path -> [mtime_ns, size] for files whose extraction failed.
+
+    Failed extractions never create a documents row, so without this they
+    would be re-attempted (expensively, for image-only PDFs) on every
+    reindex. A failure stamp skips the file until its mtime/size change.
+    """
+    try:
+        return json.loads(FAILURE_STAMPS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_failure_stamps(stamps: dict) -> None:
+    FAILURE_STAMPS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = FAILURE_STAMPS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(stamps, sort_keys=True), encoding="utf-8")
+    tmp.replace(FAILURE_STAMPS_PATH)
+
+
 def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
                    embed: bool = True, parallel: int = 1) -> dict:
     conn = connect()
     stats = {"source": source, "scanned": 0, "indexed": 0, "skipped": 0, "errors": []}
+    failure_stamps = _load_failure_stamps()
+
+    def _record_failure(path: Path, stat_meta: dict, error: str) -> None:
+        stats["errors"].append({"path": str(path), "error": error})
+        failure_stamps[str(path)] = [stat_meta["file_mtime_ns"], stat_meta["file_size"]]
+
+    def _handle_result(path: Path, stat_meta: dict, result: dict) -> None:
+        if result.get("indexed"):
+            stats["indexed"] += 1
+            failure_stamps.pop(str(path), None)
+        elif result.get("reason") == "empty":
+            # No extractable content; stamp it so it isn't re-extracted nightly.
+            stats["skipped"] += 1
+            failure_stamps[str(path)] = [stat_meta["file_mtime_ns"], stat_meta["file_size"]]
+        else:
+            stats["skipped"] += 1
+
     try:
         # Cheap stat-based pass first: unchanged files are skipped without
         # being opened. `limit` caps files that actually need work.
@@ -638,7 +679,12 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
         for path in _iter_files_for_source(source):
             stats["scanned"] += 1
             try:
-                if not force and _stat_unchanged(conn, path, _file_stat_meta(path)):
+                stat_meta = _file_stat_meta(path)
+                if not force and failure_stamps.get(str(path)) == [
+                        stat_meta["file_mtime_ns"], stat_meta["file_size"]]:
+                    stats["skipped"] += 1
+                    continue
+                if not force and _stat_unchanged(conn, path, stat_meta):
                     stats["skipped"] += 1
                     continue
             except OSError as e:
@@ -651,13 +697,11 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
         if parallel <= 1:
             for path in pending:
                 try:
+                    stat_meta = _file_stat_meta(path)
                     result = index_file(path, force=force, embed=embed, conn=conn)
-                    if result.get("indexed"):
-                        stats["indexed"] += 1
-                    else:
-                        stats["skipped"] += 1
+                    _handle_result(path, stat_meta, result)
                 except Exception as e:
-                    stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
+                    _record_failure(path, _file_stat_meta(path), f"{type(e).__name__}: {e}")
             return stats
 
         # Parallel: text extraction (CPU-bound pdfplumber) in worker processes,
@@ -673,6 +717,7 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
                 for fut in _futures.as_completed(future_map):
                     path = future_map[fut]
                     try:
+                        stat_meta = _file_stat_meta(path)
                         text = fut.result()
                         source_type = source_type_for_path(path)
                         result = index_text(
@@ -681,19 +726,20 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
                             source_type=source_type,
                             source_uri=_source_uri_for_file(path, source_type),
                             source_path=str(path),
-                            metadata=_file_stat_meta(path),
+                            metadata=stat_meta,
                             force=force,
                             embed=embed,
                             conn=conn,
                         )
-                        if result.get("indexed"):
-                            stats["indexed"] += 1
-                        else:
-                            stats["skipped"] += 1
+                        _handle_result(path, stat_meta, result)
                     except Exception as e:
-                        stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
+                        try:
+                            _record_failure(path, _file_stat_meta(path), f"{type(e).__name__}: {e}")
+                        except OSError:
+                            stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
     finally:
         conn.close()
+        _save_failure_stamps(failure_stamps)
     return stats
 
 

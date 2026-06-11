@@ -78,5 +78,48 @@ class TestFastSkip(unittest.TestCase):
         self.assertEqual(again["reason"], "unchanged_stat")
 
 
+class TestFailureStamps(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.data_dir = root / "data"
+        notes = self.data_dir / "MU" / "research" / "notes"
+        notes.mkdir(parents=True)
+        self.bad_pdf = notes / "image_only.pdf"
+        self.bad_pdf.write_bytes(b"not really a pdf" * 50)
+
+        db_path = root / "kb.sqlite"
+        real_connect = kb.connect
+        for target, value in [
+            ("DATA_DIR", self.data_dir),
+            ("FAILURE_STAMPS_PATH", root / "failure_stamps.json"),
+        ]:
+            p = mock.patch.object(kb, target, value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(kb, "connect", lambda db_path=None: real_connect(db_path or Path(self._tmp.name) / "kb.sqlite"))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_failed_extraction_is_not_retried_until_file_changes(self):
+        stats = kb.reindex_source("research", embed=False)
+        self.assertEqual(stats["scanned"], 1)
+        self.assertEqual(len(stats["errors"]), 1)
+        self.assertTrue(kb.FAILURE_STAMPS_PATH.exists())
+
+        # Second run: the failure stamp skips the file without opening it.
+        with mock.patch.object(kb, "extract_text_from_file",
+                               side_effect=AssertionError("must not extract")):
+            stats2 = kb.reindex_source("research", embed=False)
+        self.assertEqual(stats2["skipped"], 1)
+        self.assertEqual(stats2["errors"], [])
+
+        # Changing the file clears the skip and extraction is attempted again.
+        self.bad_pdf.write_bytes(b"different bytes, still not a pdf" * 50)
+        stats3 = kb.reindex_source("research", embed=False)
+        self.assertEqual(len(stats3["errors"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
