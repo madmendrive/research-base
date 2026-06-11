@@ -111,17 +111,26 @@ def queued_summary(limit: int = 20) -> list[dict]:
         conn.close()
 
 
-def _claim_next(conn):
+def _claim_next(conn, kinds: list[str] | None = None,
+                exclude_kinds: list[str] | None = None):
     _init_jobs(conn)
+    where = "status = 'queued' AND available_at <= ?"
+    params: list = [_now()]
+    if kinds:
+        where += f" AND kind IN ({','.join('?' for _ in kinds)})"
+        params.extend(kinds)
+    if exclude_kinds:
+        where += f" AND kind NOT IN ({','.join('?' for _ in exclude_kinds)})"
+        params.extend(exclude_kinds)
     conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
-        """
+        f"""
         SELECT * FROM jobs
-        WHERE status = 'queued' AND available_at <= ?
+        WHERE {where}
         ORDER BY id
         LIMIT 1
         """,
-        (_now(),),
+        params,
     ).fetchone()
     if not row:
         conn.commit()
@@ -335,7 +344,7 @@ def _process_job(job: dict) -> str:
         from scripts.folder_scan import folder_scan
 
         stats = folder_scan(
-            payload["folder"],
+            payload.get("folder") or r"C:\Users\Owner\Downloads\research-inbox",
             notify=bool(payload.get("notify", True)),
             analyse=bool(payload.get("analyse", False)),
         )
@@ -401,7 +410,19 @@ def _retry_locked(fn, *args, attempts: int = 6, wait_seconds: int = 5):
             time.sleep(wait_seconds)
 
 
-def worker(run_once: bool = False, sleep_seconds: int = 5) -> None:
+def worker(run_once: bool = False, sleep_seconds: int = 5,
+           kinds: list[str] | None = None,
+           exclude_kinds: list[str] | None = None) -> None:
+    """Job worker. With kinds/exclude_kinds, multiple workers can run in
+    parallel lanes — e.g. an interactive lane claiming only analyst_question
+    (read-mostly, safe alongside anything) and a heavy lane for everything
+    else, which stays strictly serial so jobs that mutate the data tree
+    (ingests rebuilding entity summaries) never race each other."""
+    if kinds and exclude_kinds:
+        raise ValueError("pass kinds or exclude_kinds, not both")
+    lane = f" lane={','.join(kinds)}" if kinds else (
+        f" lane=all-except-{','.join(exclude_kinds)}" if exclude_kinds else "")
+    print(f"worker started{lane}")
     conn = kb.connect()
     _init_jobs(conn)
     try:
@@ -410,7 +431,7 @@ def worker(run_once: bool = False, sleep_seconds: int = 5) -> None:
                 recovered = _recover_stale_running(conn)
                 if recovered:
                     print(f"recovered {recovered} stale running job(s)")
-                job = _claim_next(conn)
+                job = _claim_next(conn, kinds=kinds, exclude_kinds=exclude_kinds)
             except sqlite3.OperationalError as e:
                 # A poll-time lock (concurrent reindex/backfill process) must
                 # not kill the worker — 2026-06-11 it did, and every queued

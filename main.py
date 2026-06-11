@@ -524,10 +524,19 @@ def sweep_cmd(folder, with_cross_cut, scan_existing):
 @click.option("--once", is_flag=True, help="Process at most one queued job, then exit.")
 @click.option("--sleep", "sleep_seconds", default=5, show_default=True,
               help="Seconds to sleep when no job is queued.")
-def worker_cmd(once, sleep_seconds):
-    """Run the single-writer job worker."""
+@click.option("--kinds", default="", help="Comma-separated job kinds this worker claims "
+              "(e.g. analyst_question for an interactive lane).")
+@click.option("--exclude-kinds", default="", help="Comma-separated job kinds this worker "
+              "never claims (the heavy lane uses --exclude-kinds analyst_question).")
+def worker_cmd(once, sleep_seconds, kinds, exclude_kinds):
+    """Run a job worker (optionally restricted to a lane of job kinds)."""
     from scripts.jobs import worker
-    worker(run_once=once, sleep_seconds=sleep_seconds)
+    worker(
+        run_once=once,
+        sleep_seconds=sleep_seconds,
+        kinds=[k.strip() for k in kinds.split(",") if k.strip()] or None,
+        exclude_kinds=[k.strip() for k in exclude_kinds.split(",") if k.strip()] or None,
+    )
 
 
 @cli.command("heartbeat")

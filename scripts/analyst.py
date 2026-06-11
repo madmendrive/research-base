@@ -179,7 +179,7 @@ ANALYST_TOOLS = [
 _ANALYST_JOB_PAYLOADS = {
     "headline_sweep": {"notify": True, "window_hours": 6, "max_digest_items": 20},
     "email_sweep": {"analyse_attachments": False, "extract_research": True, "notify": True},
-    "folder_scan": {"notify": True},
+    "folder_scan": {"notify": True, "folder": r"C:\Users\Owner\Downloads\research-inbox"},
     "kb_reindex": {"source": "all", "notify": True},
     "research_map_reindex": {"notify": True},
 }

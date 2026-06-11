@@ -64,5 +64,42 @@ class TestWorkerPollSurvivesLock(unittest.TestCase):
         self.assertEqual(polls["n"], 3)
 
 
+class TestClaimLanes(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        db = Path(self._tmp.name) / "kb.sqlite"
+        real_connect = jobs.kb.connect
+        p = mock.patch.object(jobs.kb, "connect", lambda db_path=None: real_connect(db))
+        p.start()
+        self.addCleanup(p.stop)
+        jobs.enqueue_job("ingest_file", {"path": "x.pdf"})
+        jobs.enqueue_job("analyst_question", {"question": "q"})
+        self.conn = jobs.kb.connect()
+        self.addCleanup(self.conn.close)
+
+    def test_kinds_lane_claims_only_matching(self):
+        job = jobs._claim_next(self.conn, kinds=["analyst_question"])
+        self.assertEqual(job["kind"], "analyst_question")
+        self.assertIsNone(jobs._claim_next(self.conn, kinds=["analyst_question"]))
+
+    def test_exclude_lane_skips_excluded(self):
+        job = jobs._claim_next(self.conn, exclude_kinds=["analyst_question"])
+        self.assertEqual(job["kind"], "ingest_file")
+        self.assertIsNone(jobs._claim_next(self.conn, exclude_kinds=["analyst_question"]))
+
+    def test_lanes_partition_the_queue(self):
+        a = jobs._claim_next(self.conn, exclude_kinds=["analyst_question"])
+        b = jobs._claim_next(self.conn, kinds=["analyst_question"])
+        self.assertEqual({a["kind"], b["kind"]}, {"ingest_file", "analyst_question"})
+
+    def test_kinds_and_exclude_together_rejected(self):
+        with self.assertRaises(ValueError):
+            jobs.worker(run_once=True, kinds=["a"], exclude_kinds=["b"])
+
+
 if __name__ == "__main__":
     unittest.main()
