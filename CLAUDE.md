@@ -222,6 +222,33 @@ cd ~/research-pipeline; python main.py dedup-notes            # dry-run + manife
 cd ~/research-pipeline; python main.py dedup-notes --apply    # refuses while worker has a running job
 ```
 
+## KB index (full corpus, 2026-06-11)
+
+The KB covers the entire data tree — research notes AND all IR/filings/MOPS
+PDFs (~19.4k documents, ~467k chunks, OpenAI text-embedding-3-small). The
+one-time backfill ran 2026-06-11 (~$8 embeddings). Reindex cost control:
+- `index_file` skips unchanged files via a mtime+size stamp in
+  `documents.metadata_json` — no text extraction for unchanged files.
+- Failed/empty extractions (corrupt or image-only PDFs, ~130 files) are
+  stamped in `data/_kb/extract_failure_stamps.json` and skipped until the
+  file changes; they have no documents row so they'd otherwise re-extract
+  every night.
+- `kb-reindex --parallel N` fans extraction out to N processes (backfills);
+  `--limit` counts new/changed files only.
+The nightly 03:00 `kb_reindex` job (source=all) is therefore a stat-scan
+plus only genuinely new files — minutes, pennies.
+
+## Agentic analyst (Telegram bot)
+
+`scripts/analyst.answer_question` runs a streamed Anthropic tool-use loop
+(`_call_claude_agentic`): `run_pipeline_job` (whitelisted kinds:
+headline/email/folder sweeps + reindexes — "run the tech brief" queues a
+headline_sweep), `pipeline_status`, and `search_kb` follow-up retrieval.
+Falls back to plain single-shot synthesis on any failure or when
+ANALYST_PROVIDER=openai; disable with ANALYST_TOOLS=0. Missed headline
+slots also self-heal: heartbeat catch_up runs same-day missed slots on
+startup.
+
 ## Duplicate handling
 
 Store paths skip re-storing a byte-identical file that already exists in the
