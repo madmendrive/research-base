@@ -352,6 +352,17 @@ def _quarantine_name(rel: str) -> str:
     return rel.replace("/", "__")
 
 
+def _research_rows_for_uri(conn: sqlite3.Connection, source_uri: str) -> int:
+    total = 1 if conn.execute(
+        "SELECT 1 FROM research_sources WHERE source_uri = ?", (source_uri,)
+    ).fetchone() else 0
+    for table in RESEARCH_CHILD_TABLES:
+        total += conn.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE source_uri = ?", (source_uri,)
+        ).fetchone()[0]
+    return total
+
+
 def _running_jobs(conn: sqlite3.Connection) -> list[str]:
     try:
         return [f"{r['id']}:{r['kind']}" for r in conn.execute(
@@ -374,6 +385,7 @@ def apply_plan(plan: dict, conn: sqlite3.Connection | None = None,
         "groups_skipped": 0,
         "files_quarantined": 0,
         "transplants": 0,
+        "transplant_rollbacks": 0,
         "research_rows_deleted": 0,
         "chunks_deleted": 0,
         "warnings": [],
@@ -417,11 +429,16 @@ def apply_plan(plan: dict, conn: sqlite3.Connection | None = None,
             keeper_json = keeper_pdf.with_name(keeper_pdf.name + ".json")
 
             # Transplant the richest extraction onto the keeper before pruning.
+            # Extraction schemas differ by corpus type (single_name vs author
+            # vs thematic), so a donor JSON from a different corpus can yield
+            # FEWER rows under the keeper's scope — roll back if it does.
+            transplanted = False
             if group["donor"]:
                 donor_pdf = Path(group["donor"])
                 donor_json = donor_pdf.with_name(donor_pdf.name + ".json")
                 if donor_json.exists():
                     quarantine.mkdir(parents=True, exist_ok=True)
+                    backup = None
                     if keeper_json.exists():
                         backup = quarantine / (
                             _quarantine_name(keeper_info["rel"]) + ".json.pre-transplant")
@@ -432,7 +449,14 @@ def apply_plan(plan: dict, conn: sqlite3.Connection | None = None,
                     if donor_summary.exists() and not keeper_summary.exists():
                         shutil.copy2(donor_summary, keeper_summary)
                     research_memory.ingest_file(conn, keeper_json)
-                    result["transplants"] += 1
+                    rows_now = _research_rows_for_uri(conn, keeper_info["source_uri"])
+                    if rows_now < keeper_info["rows"] and backup is not None:
+                        shutil.copy2(backup, keeper_json)
+                        research_memory.ingest_file(conn, keeper_json)
+                        result["transplant_rollbacks"] += 1
+                    else:
+                        transplanted = True
+                        result["transplants"] += 1
                 else:
                     result["warnings"].append(f"donor json missing: {donor_json}")
 
@@ -454,14 +478,8 @@ def apply_plan(plan: dict, conn: sqlite3.Connection | None = None,
 
             # Post-check: the keeper must retain at least the richest row count
             # seen in the group (transplant target), or its own original rows.
-            keeper_rows = 1 if conn.execute(
-                "SELECT 1 FROM research_sources WHERE source_uri = ?",
-                (keeper_info["source_uri"],)).fetchone() else 0
-            for table in RESEARCH_CHILD_TABLES:
-                keeper_rows += conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE source_uri = ?",
-                    (keeper_info["source_uri"],)).fetchone()[0]
-            expected = group_rows_before if group["donor"] else keeper_info["rows"]
+            keeper_rows = _research_rows_for_uri(conn, keeper_info["source_uri"])
+            expected = group_rows_before if transplanted else keeper_info["rows"]
             if keeper_rows < expected:
                 result["warnings"].append(
                     f"keeper {keeper_info['rel']} retained {keeper_rows} research "

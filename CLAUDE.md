@@ -216,4 +216,19 @@ Get-Content C:\Users\Owner\research-pipeline\bulk_ingest_real.log -Wait -Tail 30
 
 # Inspect routing decisions
 Get-Content C:\Users\Owner\research-pipeline\data\_routing_log.jsonl | ConvertFrom-Json | Select-Object -Last 20
+
+# Find duplicate note PDFs (byte-identical); --apply quarantines extras
+cd ~/research-pipeline; python main.py dedup-notes            # dry-run + manifest
+cd ~/research-pipeline; python main.py dedup-notes --apply    # refuses while worker has a running job
 ```
+
+## Duplicate handling
+
+Store paths skip re-storing a byte-identical file that already exists in the
+destination notes dir under any date prefix (`scripts/dedup_notes.existing_identical_copy`).
+The `dedup-notes` command cleans historical duplicates: keeper = canonical-location
+copy, richest extraction transplanted onto it, losers moved to
+`data/_dedup_quarantine/<ts>/` with flattened names plus a dump of every DB row
+removed. Groups whose copies resolve to two real subjects (same PDF deliberately
+filed under two tickers/authors/themes) are reported in the manifest and never
+touched — their research rows carry per-subject granular data.

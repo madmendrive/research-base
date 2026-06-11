@@ -156,6 +156,44 @@ class TestScanAndApply(DedupNotesBase):
         self.assertTrue(ticker_copy.exists())
         self.assertGreater(self.rows_for(ticker_copy), 0)
 
+    def test_cross_schema_transplant_rolls_back(self):
+        """A donor extraction from a different corpus schema can yield fewer
+        rows under the keeper's scope — the transplant must roll back."""
+        content = b"%PDF-schema-bytes%" * 64
+        macro_payload = {
+            "metadata": {"title": "Note", "author": "JPM", "source": "JPM",
+                         "date": "2026-06-01"},
+            "macro_views": {"rates": {"view": "cuts coming", "sentiment": "neutral"},
+                            "fx": {"view": "dollar weaker"}},
+        }
+        thematic_payload = {
+            "metadata": {"title": "Note", "author": "JPM", "source": "JPM",
+                         "date": "2026-06-01"},
+            "theme_estimates": {"wfe": {"2026": "100", "2027": "110"},
+                                "hbm_bits": {"2026": "1", "2027": "2"},
+                                "capex": {"2026": "5", "2027": "6"}},
+        }
+        keeper = self.make_note("Macro/authors/J.P. Morgan/notes",
+                                "2026-06-08_s.pdf", content, macro_payload)
+        donor = self.make_note("Thematic/News Article/notes",
+                               "2026-06-10_s.pdf", content, thematic_payload)
+        keeper_rows = self.rows_for(keeper)
+        self.assertGreater(self.rows_for(donor), keeper_rows)
+
+        plan = dedup_notes.scan_duplicates(self.data_dir, self.conn)
+        self.assertEqual(plan["dedupe_groups"], 1)
+        self.assertEqual(plan["groups"][0]["donor"], str(donor))
+
+        result = dedup_notes.apply_plan(plan, conn=self.conn, data_dir=self.data_dir)
+        self.assertEqual(result["transplant_rollbacks"], 1)
+        self.assertEqual(result["transplants"], 0)
+        self.assertEqual(result["warnings"], [])
+        self.assertEqual(self.rows_for(keeper), keeper_rows)
+        kept_payload = json.loads(
+            keeper.with_name(keeper.name + ".json").read_text(encoding="utf-8"))
+        self.assertIn("macro_views", kept_payload)
+        self.assertFalse(donor.exists())
+
     def test_different_bytes_never_grouped(self):
         self.make_note("MU/research/notes", "2026-06-08_v.pdf", b"AAAA" * 200)
         self.make_note("MU/research/notes", "2026-06-10_v.pdf", b"BBBB" * 200)
