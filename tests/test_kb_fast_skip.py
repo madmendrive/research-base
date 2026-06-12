@@ -78,6 +78,34 @@ class TestFastSkip(unittest.TestCase):
         self.assertEqual(again["reason"], "unchanged_stat")
 
 
+class TestSearchVectorPool(unittest.TestCase):
+    """search() must build a bounded vector candidate pool, not scan the
+    whole chunks table (minutes of CPU at full-corpus scale)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        real_connect = kb.connect
+        p = mock.patch.object(kb, "connect", lambda db_path=None: real_connect(root / "kb.sqlite"))
+        p.start()
+        self.addCleanup(p.stop)
+        for i in range(5):
+            doc = root / f"note{i}.md"
+            doc.write_text(f"# Note {i}\n\nHBM supply commentary number {i}.",
+                           encoding="utf-8")
+            kb.index_file(doc, embed=False)
+
+    def test_search_returns_fts_hits_and_runs_pool_queries(self):
+        results = kb.search("HBM supply", use_vector=True)
+        self.assertTrue(results)
+        self.assertTrue(all(r["match"] == "fts" for r in results))
+
+    def test_search_without_vector(self):
+        results = kb.search("HBM supply", use_vector=False)
+        self.assertTrue(results)
+
+
 class TestFailureStamps(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

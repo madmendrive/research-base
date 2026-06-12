@@ -27,6 +27,10 @@ SUPPORTED_SUFFIXES = {".pdf", ".md", ".txt", ".html", ".htm", ".jsonl", ".eml"}
 DEFAULT_CHUNK_CHARS = 3500
 DEFAULT_CHUNK_OVERLAP = 400
 DEFAULT_SEARCH_LIMIT = 8
+# Bounded candidate pool for vector scoring in search() — cosine in pure
+# Python over the full 467k-chunk table takes minutes per query.
+VECTOR_POOL_FTS_CANDIDATES = 400
+VECTOR_POOL_RECENT_CHUNKS = 2000
 
 
 def _now() -> str:
@@ -798,17 +802,49 @@ def search(
 
         vector_rows = []
         if use_vector:
-            vector_rows = conn.execute(
+            # Vector-score a bounded candidate pool, never the whole table.
+            # The previous full scan json-parsed every stored embedding per
+            # search — fine at 30k chunks, minutes of pure CPU at 467k after
+            # the 2026-06 full-corpus backfill. Pool = a wide FTS candidate
+            # set plus the most recent chunks, so fresh notes still surface
+            # when the query shares no keywords with them.
+            pool_ids: list[int] = [int(r["chunk_id"]) for r in conn.execute(
                 f"""
-                SELECT c.id AS chunk_id, c.text, c.embedding_json, d.id AS document_id,
-                       d.title, d.source_type, d.source_path, d.url, d.entities_json,
-                       d.metadata_json
+                SELECT chunks_fts.chunk_id AS chunk_id
+                FROM chunks_fts
+                JOIN chunks c ON c.id = chunks_fts.chunk_id
+                JOIN documents d ON d.id = c.document_id
+                WHERE chunks_fts MATCH ? {where_sql}
+                ORDER BY bm25(chunks_fts)
+                LIMIT ?
+                """,
+                [fts, *params, VECTOR_POOL_FTS_CANDIDATES],
+            ).fetchall()]
+            pool_ids += [int(r["chunk_id"]) for r in conn.execute(
+                f"""
+                SELECT c.id AS chunk_id
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.embedding_json IS NOT NULL {where_sql}
+                ORDER BY c.id DESC
+                LIMIT ?
                 """,
-                params,
-            ).fetchall()
+                [*params, VECTOR_POOL_RECENT_CHUNKS],
+            ).fetchall()]
+            pool_ids = list(dict.fromkeys(pool_ids))
+            if pool_ids:
+                placeholders = ",".join("?" for _ in pool_ids)
+                vector_rows = conn.execute(
+                    f"""
+                    SELECT c.id AS chunk_id, c.text, c.embedding_json, d.id AS document_id,
+                           d.title, d.source_type, d.source_path, d.url, d.entities_json,
+                           d.metadata_json
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE c.embedding_json IS NOT NULL AND c.id IN ({placeholders})
+                    """,
+                    pool_ids,
+                ).fetchall()
         if vector_rows:
             try:
                 q_vec = EmbeddingClient().embed_texts([query])[0]
