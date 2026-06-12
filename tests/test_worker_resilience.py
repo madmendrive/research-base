@@ -101,5 +101,26 @@ class TestClaimLanes(unittest.TestCase):
             jobs.worker(run_once=True, kinds=["a"], exclude_kinds=["b"])
 
 
+class TestStudyJob(unittest.TestCase):
+    def test_study_job_builds_config_and_runs(self):
+        captured = {}
+
+        def fake_run_study(config):
+            captured["config"] = config
+            return {"studied": 3, "cost_estimate": 1.5}
+
+        job = {
+            "id": 1, "kind": "study",
+            "payload_json": '{"since_hours": 30, "max_cost": 15, "notify": false}',
+        }
+        with mock.patch("scripts.study.run_study", side_effect=fake_run_study):
+            result = jobs._process_job(job)
+        self.assertIn("studied", result)
+        cfg = captured["config"]
+        self.assertEqual(cfg.since_hours, 30.0)
+        self.assertEqual(cfg.max_cost, 15.0)
+        self.assertFalse(cfg.force)
+
+
 if __name__ == "__main__":
     unittest.main()

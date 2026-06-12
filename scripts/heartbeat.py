@@ -22,6 +22,7 @@ DEFAULT_AGENDA = {
     "email_sweep_times": ["01:00", "13:00"],
     "headline_sweep_times": ["02:00", "08:00", "14:00", "20:00"],
     "headline_interval_hours": 6,
+    "study_times": ["03:30"],
     "notify": True,
     "folder_analyse": False,
     "email_analyse_attachments": False,
@@ -235,6 +236,23 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                 "research_map_reindex",
                 {"notify": False},
                 dedupe_key=f"research_map_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
+            )
+            state[run_key] = now.isoformat(timespec="seconds")
+
+        # Nightly study run (after the 03:00 reindex) refreshes company/theme
+        # dossiers for targets touched by documents in the last ~30h, so the
+        # synthesis layer tracks the corpus instead of decaying. Cost-capped;
+        # a quiet day studies nothing.
+        study_times = agenda.get("study_times")
+        if study_times is None:
+            study_times = ["03:30"]
+        study_due = _scheduled_slot_due(now, list(study_times), state, "study", catch_up=True)
+        if study_due:
+            scheduled, run_key = study_due
+            enqueue_job(
+                "study",
+                {"since_hours": 30, "max_cost": 15, "notify": True},
+                dedupe_key=f"study:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )
             state[run_key] = now.isoformat(timespec="seconds")
 

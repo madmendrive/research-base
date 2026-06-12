@@ -101,8 +101,10 @@ Pipeline tools:
 You can operate the user's research pipeline, not just answer from context.
 The always-on scheduler (HKT) runs headline sweeps / Tech Brief digests at
 02:00, 08:00, 14:00 and 20:00; email sweeps at 01:00 and 13:00; research-inbox
-folder scans at 08:30 and 20:30; and a nightly KB + research-memory reindex at
-03:00. When the user asks you to run, re-run, trigger, or catch up one of
+folder scans at 08:30 and 20:30; a nightly KB + research-memory reindex at
+03:00; and a nightly study run at 03:30 that refreshes company/theme dossiers
+from recently ingested documents. When the user asks you to run, re-run,
+trigger, or catch up one of
 these (e.g. "run the tech brief", "run the 8am sweep that was missed",
 "check my research email"), call run_pipeline_job — do not answer the request
 as a research question and do not ask which analysis they mean. When the user
@@ -122,9 +124,10 @@ ANALYST_TOOLS = [
             "Tech Brief / headline sweep -> headline_sweep; research email check -> "
             "email_sweep; scan the research-inbox folder for new PDFs -> folder_scan; "
             "refresh the searchable KB index -> kb_reindex; rebuild structured research "
-            "memory (estimates/views tables) -> research_map_reindex. The job runs right "
-            "after this answer is delivered and its results are pushed to the user on "
-            "Telegram."
+            "memory (estimates/views tables) -> research_map_reindex; refresh company/"
+            "theme study dossiers from recently ingested documents -> study. The job "
+            "runs right after this answer is delivered and its results are pushed to "
+            "the user on Telegram."
         ),
         "input_schema": {
             "type": "object",
@@ -132,7 +135,7 @@ ANALYST_TOOLS = [
                 "kind": {
                     "type": "string",
                     "enum": ["headline_sweep", "email_sweep", "folder_scan",
-                             "kb_reindex", "research_map_reindex"],
+                             "kb_reindex", "research_map_reindex", "study"],
                 },
                 "window_hours": {
                     "type": "integer",
@@ -182,6 +185,7 @@ _ANALYST_JOB_PAYLOADS = {
     "folder_scan": {"notify": True, "folder": r"C:\Users\Owner\Downloads\research-inbox"},
     "kb_reindex": {"source": "all", "notify": True},
     "research_map_reindex": {"notify": True},
+    "study": {"since_hours": 48, "max_cost": 15, "notify": True},
 }
 
 

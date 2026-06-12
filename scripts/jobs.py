@@ -340,6 +340,35 @@ def _process_job(job: dict) -> str:
             telegram_send(f"Research map reindex complete\n{json.dumps(stats, indent=2)}")
         return json.dumps(stats)
 
+    if kind == "study":
+        from scripts.study import StudyConfig, run_study
+
+        provider = (
+            payload.get("provider")
+            or os.environ.get("STUDY_PROVIDER")
+            or os.environ.get("ANALYST_STRUCTURED_PROVIDER")
+            or os.environ.get("ANALYST_PROVIDER")
+            or "anthropic"
+        )
+        if provider.lower().strip() in {"openai", "gpt"}:
+            model = payload.get("model") or os.environ.get("STUDY_MODEL") or "gpt-5.5"
+        else:
+            model = (payload.get("model") or os.environ.get("STUDY_MODEL")
+                     or os.environ.get("ANALYST_MODEL") or "claude-opus-4-7")
+        config = StudyConfig(
+            scope=payload.get("scope", "all"),
+            since_hours=float(payload.get("since_hours", 30.0) or 0.0),
+            max_cost=float(payload.get("max_cost", 15.0)),
+            limit=int(payload.get("limit", 0) or 0),
+            provider=provider,
+            model=model,
+            force=bool(payload.get("force", False)),
+        )
+        stats = run_study(config)
+        if payload.get("notify", False):
+            telegram_send(f"Study run complete\n{json.dumps(stats, indent=2, ensure_ascii=False)[:1500]}")
+        return json.dumps(stats)
+
     if kind == "folder_scan":
         from scripts.folder_scan import folder_scan
 
