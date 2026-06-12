@@ -147,11 +147,25 @@ def _normalize_triage(result: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
 
 
 def _triage_with_provider(pdf_path: Path) -> dict[str, Any]:
+    from scripts.llm_provider import native_pdf_eligible
+
     text, err = extract_text(pdf_path, max_pages=TRIAGE_MAX_PAGES, max_chars=TRIAGE_MAX_CHARS)
+    config = env_config("TRIAGE", "openai", "gpt-5-mini", timeout=180.0)
+    if (err or not text) and native_pdf_eligible(pdf_path):
+        # Image-only PDF (no text layer — BofA research, scans): attach the
+        # PDF so the model triages it visually, mirroring the extraction step.
+        system, prompt = _triage_prompt(
+            pdf_path,
+            "(This document has no machine-readable text layer. The PDF is "
+            "attached to this request — read it visually, including tables "
+            "and exhibits.)",
+        )
+        result = complete_json(prompt, config=config, system=system,
+                               max_output_tokens=2048, pdf_path=pdf_path)
+        return _normalize_triage(result, pdf_path)
     if err or not text:
         raise RuntimeError(f"Could not extract triage text: {err or 'empty'}")
     system, prompt = _triage_prompt(pdf_path, text)
-    config = env_config("TRIAGE", "openai", "gpt-5-mini", timeout=180.0)
     result = complete_json(prompt, config=config, system=system, max_output_tokens=2048)
     return _normalize_triage(result, pdf_path)
 
