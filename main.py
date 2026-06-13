@@ -783,7 +783,7 @@ def ask_cmd(question, sources, limit):
               help="Study model. Defaults to STUDY_MODEL/provider-specific analyst model.")
 @click.option("--max-output-tokens", default=3500, show_default=True,
               help="Reserved output-token budget per dossier.")
-@click.option("--timeout", default=120.0, show_default=True,
+@click.option("--timeout", default=600.0, show_default=True,
               help="Per-model-call timeout in seconds.")
 @click.option("--force", is_flag=True,
               help="Re-study targets even if a dossier already exists in study state.")
