@@ -58,6 +58,15 @@ EXPLICIT_WEB_HINTS = {
     "filings",
 }
 
+# A direct request to consult the web. Word-boundary matched so "web" doesn't
+# fire on "website" and "search" doesn't fire on "research". "live" is paired
+# with web/search/online only, since bare "live" is too ambiguous.
+_EXPLICIT_WEB_REQUEST_RE = re.compile(
+    r"\b(?:web|google|internet|online|web\s*search|search\s+(?:the\s+)?web|"
+    r"live\s+(?:web|search|internet))\b",
+    re.IGNORECASE,
+)
+
 
 def should_use_web(query: str, *, kb_result_count: int = 0, has_structured_context: bool = False) -> bool:
     mode = os.environ.get("ANALYST_WEB_CONTEXT", "auto").strip().lower()
@@ -67,6 +76,12 @@ def should_use_web(query: str, *, kb_result_count: int = 0, has_structured_conte
         return True
 
     query_l = (query or "").lower()
+    # An explicit web request always wins, even when the KB already has hits.
+    # Previously "web"/"search" only suppressed source-constrained gating; they
+    # were never a positive trigger, so "check the live web" with KB context
+    # fell through to False.
+    if _EXPLICIT_WEB_REQUEST_RE.search(query_l):
+        return True
     if has_structured_context and any(hint in query_l for hint in SOURCE_CONSTRAINED_HINTS):
         if not any(hint in query_l for hint in EXPLICIT_WEB_HINTS):
             return False
