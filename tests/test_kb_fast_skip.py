@@ -149,5 +149,35 @@ class TestFailureStamps(unittest.TestCase):
         self.assertEqual(len(stats3["errors"]), 1)
 
 
+class TestFtsQueryOperators(unittest.TestCase):
+    """FTS operator words in a user query must not break the MATCH syntax."""
+
+    def test_operator_tokens_are_quoted_literals(self):
+        from scripts.kb import _fts_query
+        out = _fts_query("FABLE 5 AND MYTHOS 5, and other stocks")
+        self.assertIn('"AND"', out)
+        self.assertNotIn(" AND ", out)  # never a bare operator
+        self.assertTrue(out.startswith('"'))
+
+    def test_empty_query_is_safe(self):
+        from scripts.kb import _fts_query
+        self.assertEqual(_fts_query("!! ??"), '""')
+
+    def test_search_with_operator_query_runs(self):
+        # End-to-end against a tiny temp KB: must not raise fts5 syntax error.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            real = kb.connect
+            with mock.patch.object(kb, "connect", lambda db_path=None: real(root / "kb.sqlite")):
+                doc = root / "n.md"
+                doc.write_text("memory and substrate supply chain notes", encoding="utf-8")
+                kb.index_file(doc, embed=False)
+                # Would raise OperationalError before the quoting fix.
+                kb.search("FABLE 5 AND MYTHOS 5 AND substrate", use_vector=False)
+                kb.search("NOT NEAR OR AND", use_vector=False)
+
+
 if __name__ == "__main__":
     unittest.main()

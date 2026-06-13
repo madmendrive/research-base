@@ -74,7 +74,10 @@ class KBTests(unittest.TestCase):
         self.assertTrue(all(chunks))
 
     def test_fts_query_splits_market_suffix_punctuation(self):
-        self.assertEqual(kb._fts_query("3037.TT ABF substrate"), "3037 OR TT OR ABF OR substrate")
+        # Punctuation splits 3037.TT into 3037 + TT; tokens are quoted as FTS5
+        # string literals so operator-like words can't break MATCH syntax.
+        self.assertEqual(kb._fts_query("3037.TT ABF substrate"),
+                         '"3037" OR "TT" OR "ABF" OR "substrate"')
 
 
 class ImportTests(unittest.TestCase):

@@ -748,9 +748,16 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
 
 
 def _fts_query(query: str) -> str:
+    # Quote each token as an FTS5 string literal. A bare token equal to an
+    # FTS5 operator (AND/OR/NOT/NEAR) is parsed as that operator, so a query
+    # like "FABLE 5 AND MYTHOS" produced "... OR AND OR ..." → fts5 syntax
+    # error. Quoting makes every token a literal term. Tokens are
+    # [A-Za-z0-9_] so they contain no quotes to escape.
     tokens = re.findall(r"[A-Za-z0-9_]+", query)
     tokens = [t for t in tokens if len(t) >= 2]
-    return " OR ".join(tokens[:12]) or query.replace('"', '""')
+    if not tokens:
+        return '""'
+    return " OR ".join(f'"{t}"' for t in tokens[:12])
 
 
 def _source_where(sources: str) -> tuple[str, list[str]]:
