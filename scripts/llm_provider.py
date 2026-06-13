@@ -131,7 +131,8 @@ MAX_TOKENS_ESCALATION_CAP = 32_768
 
 
 def call_api(client, messages, max_tokens=8192, system=None, return_response=False,
-             model=None, default_model="claude-opus-4-7", tools=None):
+             model=None, default_model="claude-opus-4-7", tools=None,
+             thinking=None, effort=None):
     """Anthropic call, always streamed, with transient retry and truncation
     escalation. Shared by research/macro/thematic and the analyst.
 
@@ -145,6 +146,12 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
             caching) or a plain string.
     return_response: return the final message object instead of just the text
                      (so callers can inspect usage metadata).
+    thinking: pass {"type": "adaptive"} to let the model reason before
+              answering (analyst/study judgment calls). Left None for the
+              high-volume extraction/triage paths, which don't need it.
+              On Opus 4.7 thinking blocks stream with empty text, so
+              text_stream still yields only the visible answer.
+    effort: "low"|"medium"|"high"|"xhigh"|"max" → output_config.effort.
     Output truncation (stop_reason == max_tokens) retries with doubled
     max_tokens, capped — a truncated response would otherwise just fail JSON
     parsing downstream.
@@ -171,6 +178,10 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
                 kwargs["system"] = system
             if tools is not None:
                 kwargs["tools"] = tools
+            if thinking is not None:
+                kwargs["thinking"] = thinking
+            if effort is not None:
+                kwargs["output_config"] = {"effort": effort}
             chunks = []
             with client.messages.stream(**kwargs) as stream:
                 for text in stream.text_stream:

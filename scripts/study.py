@@ -60,7 +60,7 @@ class StudyConfig:
     limit: int = 0
     provider: str = "anthropic"
     model: str = "claude-opus-4-7"
-    max_output_tokens: int = 3500
+    max_output_tokens: int = 8000  # headroom for adaptive-thinking tokens + dossier
     timeout: float = 120.0
     force: bool = False
     dry_run: bool = False
@@ -415,12 +415,17 @@ def _call_model(prompt: str, config: StudyConfig) -> str:
             max_retries=0,
             reasoning_effort=os.environ.get("STUDY_OPENAI_REASONING_EFFORT", "high"),
         )
+    from scripts.analyst import _resolve_thinking
+
+    thinking, effort = _resolve_thinking("STUDY")
     return _call_anthropic(
         full_prompt,
         config.model,
         config.max_output_tokens,
         timeout=config.timeout,
         max_retries=0,
+        thinking=thinking,
+        effort=effort,
     )
 
 

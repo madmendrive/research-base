@@ -252,7 +252,7 @@ def _execute_analyst_tool(name: str, tool_input: dict) -> str:
     raise ValueError(f"unknown tool: {name!r}")
 
 
-def _call_claude_agentic(prompt: str, max_tokens: int = 4000) -> str:
+def _call_claude_agentic(prompt: str, max_tokens: int = 8000) -> str:
     """Analyst synthesis with pipeline tools (manual tool-use loop).
 
     Anthropic-only — the OpenAI provider path and any failure fall back to the
@@ -265,6 +265,7 @@ def _call_claude_agentic(prompt: str, max_tokens: int = 4000) -> str:
     from scripts.llm_provider import cached_system_block, call_api, get_client
 
     model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-7")
+    thinking, effort = _resolve_thinking("ANALYST")
     client = get_client(
         "anthropic",
         timeout=_env_float("ANALYST_TIMEOUT", 600.0),
@@ -277,6 +278,7 @@ def _call_claude_agentic(prompt: str, max_tokens: int = 4000) -> str:
             final = call_api(
                 client, messages, max_tokens=max_tokens, system=system,
                 model=model, tools=ANALYST_TOOLS, return_response=True,
+                thinking=thinking, effort=effort,
             )
             if final.stop_reason != "tool_use":
                 text = "".join(b.text for b in final.content if b.type == "text").strip()
@@ -362,6 +364,27 @@ def _call_openai(
     return text
 
 
+def _resolve_thinking(prefix: str) -> tuple[dict | None, str | None]:
+    """Resolve adaptive-thinking + effort for an Anthropic judgment call from
+    {PREFIX}_THINKING / {PREFIX}_EFFORT, falling back to the ANALYST_* values.
+
+    {PREFIX}_THINKING: "adaptive"/"on"/"1" enables adaptive thinking;
+        "off"/"0"/"none" disables. Default: adaptive (on).
+    {PREFIX}_EFFORT: low|medium|high|xhigh|max. Default: high.
+    Only valid on adaptive-thinking Anthropic models (Opus 4.6+/Sonnet 4.6);
+    callers gate on provider == anthropic.
+    """
+    raw = (os.environ.get(f"{prefix}_THINKING")
+           or os.environ.get("ANALYST_THINKING") or "adaptive").strip().lower()
+    if raw in {"off", "0", "false", "no", "none", "disabled"}:
+        return None, None
+    effort = (os.environ.get(f"{prefix}_EFFORT")
+              or os.environ.get("ANALYST_EFFORT") or "high").strip().lower()
+    if effort not in {"low", "medium", "high", "xhigh", "max"}:
+        effort = "high"
+    return {"type": "adaptive"}, effort
+
+
 def _call_anthropic(
     prompt: str,
     model: str,
@@ -369,7 +392,11 @@ def _call_anthropic(
     *,
     timeout: float | None = None,
     max_retries: int | None = None,
-) -> str:
+    thinking: dict | None = None,
+    effort: str | None = None,
+    tools=None,
+    return_response: bool = False,
+):
     from scripts.llm_provider import cached_system_block, call_api, get_client
 
     timeout = timeout if timeout is not None else _env_float("ANALYST_TIMEOUT", 600.0)
@@ -377,22 +404,29 @@ def _call_anthropic(
     client = get_client("anthropic", timeout=timeout, max_retries=max_retries)
     # call_api streams — required: synthesis takes >60s and Norton kills
     # silent (non-streaming) connections at about that mark.
-    return call_api(
+    result = call_api(
         client,
         [{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
         system=cached_system_block(ANALYST_SYSTEM_PROMPT),
         model=model,
-    ).strip()
+        thinking=thinking,
+        effort=effort,
+        tools=tools,
+        return_response=return_response,
+    )
+    return result if return_response else result.strip()
 
 
-def _call_claude(prompt: str, max_tokens: int = 4000) -> str:
+def _call_claude(prompt: str, max_tokens: int = 8000) -> str:
     provider = os.environ.get("ANALYST_PROVIDER", "anthropic").lower().strip()
     model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-7")
     try:
         if provider in {"openai", "gpt"}:
             return _call_openai(prompt, model or "gpt-5.5", max_tokens)
-        return _call_anthropic(prompt, model or "claude-opus-4-7", max_tokens)
+        thinking, effort = _resolve_thinking("ANALYST")
+        return _call_anthropic(prompt, model or "claude-opus-4-7", max_tokens,
+                               thinking=thinking, effort=effort)
     except Exception as primary_error:
         fallback_provider = os.environ.get("ANALYST_FALLBACK_PROVIDER", "openai").lower().strip()
         if fallback_provider in {"openai", "gpt"} and os.environ.get("OPENAI_API_KEY"):

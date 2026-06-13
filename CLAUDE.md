@@ -238,6 +238,18 @@ one-time backfill ran 2026-06-11 (~$8 embeddings). Reindex cost control:
 The nightly 03:00 `kb_reindex` job (source=all) is therefore a stat-scan
 plus only genuinely new files — minutes, pennies.
 
+## Adaptive thinking (analyst + study)
+
+The analyst synthesis and study-dossier Anthropic calls run Opus with
+**adaptive thinking on** (`thinking={"type":"adaptive"}`) plus an `effort`
+level — the model reasons before answering. Wired via `call_api(..., thinking=,
+effort=)` (off by default, so triage/extraction ingestion calls are
+unaffected) and `analyst._resolve_thinking(prefix)`. Env control:
+`ANALYST_THINKING`/`ANALYST_EFFORT` and `STUDY_THINKING`/`STUDY_EFFORT`
+(study falls back to ANALYST_* then defaults). `*_THINKING`: adaptive (default)
+| off. `*_EFFORT`: low|medium|high(default)|xhigh|max. Thinking tokens share
+the output budget, so analyst/study `max_tokens` defaults were raised to 8000.
+
 ## Agentic analyst (Telegram bot)
 
 `scripts/analyst.answer_question` runs a streamed Anthropic tool-use loop
