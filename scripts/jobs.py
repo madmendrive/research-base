@@ -362,6 +362,7 @@ def _process_job(job: dict) -> str:
             limit=int(payload.get("limit", 0) or 0),
             provider=provider,
             model=model,
+            timeout=float(payload.get("timeout") or os.environ.get("STUDY_TIMEOUT") or 600.0),
             force=bool(payload.get("force", False)),
         )
         stats = run_study(config)
