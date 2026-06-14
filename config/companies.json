@@ -1590,18 +1590,6 @@
     "market": "US",
     "sec_cik": "0001819810"
   },
-  "AVIO.IM": {
-    "name": "Avio S.p.A.",
-    "market": "OTHER"
-  },
-  "CEREBRAS": {
-    "name": "Cerebras Systems, Inc.",
-    "market": "US"
-  },
-  "INFINEON": {
-    "name": "Infineon Technologies AG",
-    "market": "EU"
-  },
   "STM": {
     "name": "STMicroelectronics",
     "market": "EU"
@@ -1610,150 +1598,29 @@
     "name": "Power Integrations, Inc.",
     "market": "US"
   },
-  "NAVITAS": {
-    "name": "Navitas Semiconductor",
-    "market": "US"
-  },
-  "REN": {
-    "name": "Renesas Electronics Corp",
-    "market": "JP"
-  },
-  "WIIWYNN": {
-    "name": "Wiwynn Corp",
-    "market": "TW"
-  },
-  "WITRONS_PLACEHOLDER": {
-    "name": "Wistron Corp",
-    "market": "TW"
-  },
-  "ASUSTEK_PLACEHOLDER": {
-    "name": "Asustek (Asus) (placeholder)",
-    "market": "TW"
-  },
-  "GIGA-BYTE_PLACEHOLDER": {
-    "name": "Giga-Byte Technology (placeholder)",
-    "market": "TW"
-  },
-  "Cohu": {
-    "name": "Cohu, Inc.",
-    "market": "US",
-    "sec_cik": "0000021535"
-  },
-  "Chroma ATE": {
-    "name": "Chroma ATE Inc",
-    "market": "TW"
-  },
   "TI": {
     "name": "Texas Instruments Incorporated",
     "market": "US"
-  },
-  "6806 JP": {
-    "name": "Hirose Electric Co., Ltd.",
-    "market": "JP"
   },
   "SPG": {
     "name": "SPG (unnamed Korean precision components maker)",
     "market": "KR"
   },
-  "ROBOTIS": {
-    "name": "ROBOTIS Co. Ltd",
-    "market": "KR"
-  },
-  "Rainbow Robotics": {
-    "name": "Rainbow Robotics (Samsung-linked robot OEM)",
-    "market": "KR"
-  },
-  "Hyundai": {
-    "name": "Hyundai Motor Group",
-    "market": "KR"
-  },
-  "GLOBALFOUNDRIES_PLACEHOLDER": {
-    "name": "GlobalFoundries",
-    "market": "US"
-  },
-  "KIOXIA": {
-    "name": "Kioxia Holdings Corp",
-    "market": "JP"
-  },
   "HELK": {
     "name": "Hemlock Semiconductor (placeholder)",
-    "market": "US"
-  },
-  "EXTREME": {
-    "name": "Extreme Networks, Inc.",
-    "market": "US"
-  },
-  "AVNET_PLACEHOLDER": {
-    "name": "Avnet, Inc.",
-    "market": "US"
-  },
-  "HONHAI_PLACEHOLDER": {
-    "name": "Hon Hai Precision Industry (Foxconn)",
-    "market": "TW"
-  },
-  "6857.T": {
-    "name": "Advantest Corp",
-    "market": "JP"
-  },
-  "2360.TW": {
-    "name": "Chroma ATE Inc",
-    "market": "TW"
-  },
-  "LUMENTUM": {
-    "name": "Lumentum Holdings Inc",
-    "market": "US"
-  },
-  "COHERENT": {
-    "name": "Coherent Corp (Coherent Inc)",
     "market": "US"
   },
   "TOWER": {
     "name": "Tower Semiconductor",
     "market": "US"
   },
-  "GLOBALFOUNDRIES": {
-    "name": "GlobalFoundries Inc",
-    "market": "US"
-  },
   "AYAR": {
     "name": "Ayar Labs",
-    "market": "US"
-  },
-  "FORMFACTOR": {
-    "name": "FormFactor Inc",
     "market": "US"
   },
   "VIAVI": {
     "name": "Viavi Solutions",
     "market": "US"
-  },
-  "SANTEC": {
-    "name": "Santec",
-    "market": "JP"
-  },
-  "ANRITSU": {
-    "name": "Anritsu Corp",
-    "market": "JP"
-  },
-  "KEYSIGHT": {
-    "name": "Keysight Technologies",
-    "market": "US"
-  },
-  "ADVANTEST": {
-    "name": "Advantest Corp",
-    "market": "JP"
-  },
-  "CAMTEK": {
-    "name": "Camtek Ltd",
-    "market": "US"
-  },
-  "NOVA": {
-    "name": "Nova Ltd",
-    "market": "TW"
-  },
-  "CHROMA ATE": {
-    "name": "Chroma ATE Inc",
-    "market": "TW"
   },
   "TRIO-TECH": {
     "name": "Trio-Tech",
@@ -1833,8 +1700,44 @@
     "market": "HK",
     "ir_url": ""
   },
-  "SILEGY": {
+  "6806 JT": {
+    "name": "Hirose Electric Co., Ltd.",
+    "market": "JP"
+  },
+  "6415 TT": {
     "name": "Silergy Corp",
     "market": "TW"
+  },
+  "AVT": {
+    "name": "Avnet, Inc.",
+    "market": "US"
+  },
+  "CAMT": {
+    "name": "Camtek Ltd",
+    "market": "US"
+  },
+  "EXTR": {
+    "name": "Extreme Networks, Inc.",
+    "market": "US"
+  },
+  "005380 KS": {
+    "name": "Hyundai Motor Group",
+    "market": "KR"
+  },
+  "108490 KS": {
+    "name": "ROBOTIS Co. Ltd",
+    "market": "KR"
+  },
+  "277810 KS": {
+    "name": "Rainbow Robotics (Samsung-linked robot OEM)",
+    "market": "KR"
+  },
+  "IFX GR": {
+    "name": "Infineon Technologies AG",
+    "market": "EU"
+  },
+  "AVIO IM": {
+    "name": "Avio S.p.A.",
+    "market": "EU"
   }
 }

@@ -188,3 +188,19 @@ def canonicalize_ticker_materiality(values: dict | None) -> dict:
         if canonical:
             out[canonical] = materiality
     return out
+
+
+# --- Ticker format validation (guards write paths against name/placeholder keys) ---
+_VALID_TICKER_FORMATS = (
+    re.compile(r"^[A-Z]{1,6}$"),                            # US bare symbol
+    re.compile(r"^\d{3,6}[A-Z]? (TT|JT|KS|HK|SP|CH)$"),     # Asia numeric (+optional letter) + suffix
+    re.compile(r"^[A-Z0-9]{1,6} (SP|AV|LN|GR|FP|IM|TT)$"),  # lettered code + exchange suffix
+)
+
+
+def is_valid_ticker(ticker) -> bool:
+    """True if `ticker` is a well-formed market ticker (not a company name or placeholder)."""
+    t = (ticker or "").strip()
+    if not t or "placeholder" in t.lower():
+        return False
+    return any(rx.match(t) for rx in _VALID_TICKER_FORMATS)

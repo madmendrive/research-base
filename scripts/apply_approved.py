@@ -161,15 +161,17 @@ def apply_all() -> None:
     with open(COMPANIES_PATH, encoding="utf-8") as f:
         companies = json.load(f)
 
+    from scripts.tickers import is_valid_ticker
+
     added_us, added_intl, skipped = [], [], []
     for ticker, name in US_TICKERS:
-        if ticker in companies:
+        if ticker in companies or not is_valid_ticker(ticker):
             skipped.append(ticker)
             continue
         companies[ticker] = {"name": name, "market": "US"}
         added_us.append(ticker)
     for ticker, name, market in ASIA_EU_TICKERS:
-        if ticker in companies:
+        if ticker in companies or not is_valid_ticker(ticker):
             skipped.append(ticker)
             continue
         companies[ticker] = {"name": name, "market": market}

@@ -339,6 +339,14 @@ def add_company():
         "Market",
         type=click.Choice(["US", "JP", "TW", "KR", "other"], case_sensitive=False),
     )
+
+    from scripts.tickers import is_valid_ticker
+    if not is_valid_ticker(ticker):
+        click.echo(f"Error: '{ticker}' is not a valid ticker. Use a bare US symbol "
+                   f"(AAPL) or code+suffix (2330 TT, 6857 JT, 005930 KS, IFX GR). "
+                   f"Company names and placeholders are not allowed.")
+        raise SystemExit(1)
+
     ir_url = click.prompt("IR website URL")
 
     fy_end = click.prompt(
