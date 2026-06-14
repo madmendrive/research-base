@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
-CLASSIFY_MODEL = "claude-sonnet-4-20250514"
+CLASSIFY_MODEL = "claude-haiku-4-5-20251001"  # IR-doc routing (10-K vs earnings) — Haiku is plenty, ~3x cheaper than Sonnet 4.
 
 CLASSIFICATION_PROMPT = """\
 You are classifying an investor relations document. Based on the text below \
