@@ -1806,9 +1806,21 @@ def headline_sweep(
                 }
     _save_state(state)
 
+    # Fresh-only: drop headlines already sent in a prior digest so the same
+    # item doesn't resurface across the overlapping 24h windows of successive
+    # briefs. Only items actually delivered (notify=True) get marked
+    # `digested_at`, so notify-off verification runs never suppress a real
+    # brief. Toggle with HEADLINE_FRESH_ONLY=0.
+    fresh_only = os.environ.get("HEADLINE_FRESH_ONLY", "1").strip().lower() not in {"0", "false", "no"}
+    already_digested = (
+        {k for k, v in seen.items() if (v or {}).get("digested_at")}
+        if fresh_only else set()
+    )
     scored = [_score_item(item)[1] for item in candidate_items]
     ranked = sorted(
-        [item for item in scored if item["score"] > 0 and _is_digest_candidate(item)],
+        [item for item in scored
+         if item["score"] > 0 and _is_digest_candidate(item)
+         and item.get("key") not in already_digested],
         key=lambda x: (x["score"], _sort_timestamp(x)),
         reverse=True,
     )
@@ -1848,8 +1860,22 @@ def headline_sweep(
         )
     if notify and digest:
         telegram_send(telegram_html, parse_mode="HTML", disable_web_page_preview=True)
+        # Mark delivered items so fresh-only excludes them from later briefs.
+        for item in digest_items:
+            k = item.get("key")
+            if not k:
+                continue
+            entry = seen.setdefault(k, {
+                "title": item.get("title"),
+                "source": item.get("source"),
+                "url": item.get("url"),
+                "published_at": item.get("published_at"),
+                "first_seen_at": item.get("fetched_at", fetched_at),
+            })
+            entry["digested_at"] = fetched_at
+        _save_state(state)
     elif notify:
-        telegram_send(f"Tech Brief: no material tech headlines found in the last {window_hours} hours.")
+        telegram_send(f"Tech Brief: no new material tech headlines in the last {window_hours} hours.")
     return {
         "terms": len(terms),
         "window_hours": window_hours,
