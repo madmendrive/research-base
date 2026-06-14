@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
+import time
+
+log = logging.getLogger(__name__)
 
 
 TEMPORAL_TRIGGERS = {
@@ -142,7 +146,13 @@ def _call_anthropic_web(query: str, *, max_items: int, max_searches: int) -> str
         return ""
     from anthropic import Anthropic
 
-    model = os.environ.get("ANALYST_WEB_MODEL") or os.environ.get("ANALYST_MODEL", "claude-opus-4-7")
+    # ANALYST_WEB_MODEL may be an OpenAI model (it's the OpenAI web model in
+    # this deployment); never send that to the Anthropic API.
+    model = os.environ.get("ANALYST_WEB_ANTHROPIC_MODEL")
+    if not model:
+        candidate = os.environ.get("ANALYST_WEB_MODEL", "")
+        model = candidate if candidate and not candidate.lower().startswith(("gpt-", "o")) else ""
+    model = model or os.environ.get("ANALYST_MODEL") or "claude-opus-4-7"
     client = Anthropic(
         timeout=float(os.environ.get("ANALYST_WEB_TIMEOUT", "120")),
         max_retries=int(os.environ.get("ANALYST_WEB_MAX_RETRIES", "1")),
@@ -167,21 +177,54 @@ def _call_anthropic_web(query: str, *, max_items: int, max_searches: int) -> str
     ).strip()
 
 
+def _is_transient_web_error(exc: Exception) -> bool:
+    s = f"{type(exc).__name__} {exc}".lower()
+    return any(t in s for t in (
+        "rate", "429", "overloaded", "529", "503", "502",
+        "timeout", "timed out", "connection", "temporarily",
+    ))
+
+
+def _run_web_provider(provider: str, query: str, *, max_items: int, max_searches: int) -> str:
+    if provider in {"anthropic", "claude"}:
+        return _call_anthropic_web(query, max_items=max_items, max_searches=max_searches)
+    return _call_openai_web(query, max_items=max_items, max_searches=max_searches)
+
+
 def fetch_web_context(query: str, *, kb_result_count: int = 0, has_structured_context: bool = False) -> str:
     if not should_use_web(query, kb_result_count=kb_result_count, has_structured_context=has_structured_context):
         return ""
 
-    provider = os.environ.get("ANALYST_WEB_PROVIDER", "openai").strip().lower()
     max_items = int(os.environ.get("ANALYST_WEB_MAX_ITEMS", "6"))
     max_searches = int(os.environ.get("ANALYST_WEB_MAX_USES", "4"))
-    try:
-        if provider in {"anthropic", "claude"}:
-            text = _call_anthropic_web(query, max_items=max_items, max_searches=max_searches)
-        else:
-            text = _call_openai_web(query, max_items=max_items, max_searches=max_searches)
-    except Exception as e:
-        if os.environ.get("ANALYST_WEB_FAIL_CLOSED", "0").strip().lower() in {"1", "true", "yes"}:
-            raise
-        text = f"Live web context was requested but failed: {type(e).__name__}: {e}"
+    attempts = max(1, int(os.environ.get("ANALYST_WEB_ATTEMPTS", "2")))
 
-    return f"<live_web_context>\n{text}\n</live_web_context>" if text else ""
+    primary = os.environ.get("ANALYST_WEB_PROVIDER", "openai").strip().lower()
+    primary = "anthropic" if primary in {"anthropic", "claude"} else "openai"
+    order = [primary]
+    if os.environ.get("ANALYST_WEB_FALLBACK", "1").strip().lower() not in {"0", "false", "no"}:
+        # OpenAI and Anthropic web search are independent APIs, so an upstream
+        # rate limit on one rarely coincides with the other.
+        order.append("anthropic" if primary == "openai" else "openai")
+
+    errors: list[str] = []
+    for provider in order:
+        for attempt in range(attempts):
+            try:
+                text = _run_web_provider(provider, query, max_items=max_items, max_searches=max_searches)
+            except Exception as e:  # noqa: BLE001 — provider SDKs raise varied types
+                errors.append(f"{provider}: {type(e).__name__}: {e}")
+                log.warning("web context %s attempt %d/%d failed: %s",
+                            provider, attempt + 1, attempts, e)
+                if _is_transient_web_error(e) and attempt + 1 < attempts:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                break  # non-transient, or attempts exhausted → next provider
+            if text:
+                return f"<live_web_context>\n{text}\n</live_web_context>"
+            break  # empty (e.g. provider has no API key) → next provider
+
+    if os.environ.get("ANALYST_WEB_FAIL_CLOSED", "0").strip().lower() in {"1", "true", "yes"}:
+        raise RuntimeError("; ".join(errors) or "web context unavailable")
+    detail = "; ".join(errors) if errors else "no web provider available"
+    return f"<live_web_context>\nLive web context was requested but failed: {detail}\n</live_web_context>"
