@@ -406,6 +406,12 @@ def _process_job(job: dict) -> str:
         result = analyse_headline(payload["key"], notify=bool(payload.get("notify", True)))
         return json.dumps(result)
 
+    if kind == "analyse_email":
+        from scripts.email_sweep import analyse_email
+
+        result = analyse_email(payload["key"], notify=bool(payload.get("notify", True)))
+        return json.dumps(result)
+
     if kind == "confirm_pending":
         from scripts.ops import confirm_pending
 

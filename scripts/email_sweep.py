@@ -19,12 +19,18 @@ from pathlib import Path
 
 from scripts import kb
 from scripts.jobs import enqueue_job
-from scripts.notify import telegram_send
+from scripts.notify import telegram_send, telegram_send_markdownish_html
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 EMAIL_DIR = DATA_DIR / "_email"
 STATE_PATH = EMAIL_DIR / "_email_state.json"
+
+
+def _latest_digest_path() -> Path:
+    # Derived from EMAIL_DIR at call time so patching EMAIL_DIR (tests) moves
+    # the digest file too, without a separate constant to keep in sync.
+    return EMAIL_DIR / "_latest_email_digest.json"
 SECRETS_DIR = DATA_DIR / "_secrets"
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 MAX_EML_DEPTH = 3
@@ -324,6 +330,7 @@ def _ingest_saved_message(
     if result.get("indexed"):
         stats["indexed"] += 1
 
+    structured_ok = False
     if extract_research and body_text.strip():
         try:
             extraction = _extract_structured_email(
@@ -336,6 +343,7 @@ def _ingest_saved_message(
             )
             if extraction.get("structured"):
                 stats["structured_extracted"] += 1
+                structured_ok = True
         except Exception as exc:
             stats["structured_failed"] += 1
             stats.setdefault("structured_errors", []).append({
@@ -380,8 +388,14 @@ def _ingest_saved_message(
             _index_text_attachment(attachment, stats)
 
     return {
+        "key": kb.text_hash(message_id)[:20],
         "message_id": message_id,
         "subject": subject,
+        "sender": sender,
+        "date": date,
+        "md_path": str(md_path),
+        "source_uri": f"email:{message_id}",
+        "structured": structured_ok,
         "processed_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -568,6 +582,7 @@ def email_sweep(
     else:
         mailbox, messages = _iter_imap_messages(limit)
 
+    digest_items: list[dict] = []
     for uid, raw in messages:
         stats["seen"] += 1
         if uid in processed:
@@ -576,7 +591,7 @@ def email_sweep(
         subject = _decode(msg.get("Subject"))
         day = datetime.now().strftime("%Y-%m-%d")
         dest_dir = EMAIL_DIR / day / kb.slugify(subject or uid, max_len=80)
-        processed[uid] = _ingest_saved_message(
+        record = _ingest_saved_message(
             msg,
             dest_dir=dest_dir,
             mailbox=mailbox,
@@ -585,14 +600,107 @@ def email_sweep(
             extract_research=extract_research,
             stats=stats,
         )
+        processed[uid] = record
         stats["new"] += 1
+        # Low-value/non-research messages are stored as a skip marker with no
+        # key/md_path — keep them out of the analyst-facing digest list.
+        if record.get("key") and not record.get("skipped"):
+            digest_items.append(record)
         _save_state(state)
 
-    if notify and stats["new"]:
+    digest_items = [dict(it, rank=i) for i, it in enumerate(digest_items, start=1)]
+    _save_latest_email_digest(digest_items)
+    stats["digest_items"] = len(digest_items)
+
+    if notify and digest_items:
+        telegram_send_markdownish_html(_format_email_digest(digest_items, stats))
+    elif notify and stats["new"]:
         telegram_send(
-            f"Email sweep: {stats['new']} new message(s), "
-            f"{stats['structured_extracted']} structured extraction(s), "
-            f"{stats['queued_pdfs']} PDF attachment(s) queued, "
-            f"{stats['eml_attachments']} .eml attachment(s) parsed."
+            f"Email sweep: {stats['new']} new message(s), but none were research "
+            f"items (filtered as low-value or attachment-only)."
         )
     return stats
+
+
+def _format_email_digest(items: list[dict], stats: dict) -> str:
+    lines = [f"**Research email sweep — {len(items)} new item(s)**", ""]
+    for it in items:
+        subject = (it.get("subject") or "(no subject)").strip()
+        sender = (it.get("sender") or "").strip()
+        flag = " · structured" if it.get("structured") else ""
+        lines.append(f"{it['rank']}. **{subject}**")
+        meta = sender + flag if sender else flag.lstrip(" ·")
+        if meta:
+            lines.append(f"   {meta}")
+        lines.append(f"   analyse: /email_{it['rank']}")
+        lines.append("")
+    if stats.get("queued_pdfs"):
+        lines.append(f"({stats['queued_pdfs']} PDF attachment(s) queued for ingestion.)")
+    return "\n".join(lines).strip()
+
+
+def _save_latest_email_digest(items: list[dict]) -> None:
+    path = _latest_digest_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"generated_at": datetime.now().isoformat(timespec="seconds"), "items": items}
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _load_latest_email_digest() -> dict:
+    path = _latest_digest_path()
+    if not path.exists():
+        return {"items": []}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"items": []}
+
+
+def get_email(key: str) -> dict | None:
+    for it in _load_latest_email_digest().get("items", []):
+        if it.get("key") == key:
+            return it
+    return None
+
+
+def get_email_by_rank(rank: int) -> dict | None:
+    for it in _load_latest_email_digest().get("items", []):
+        try:
+            if int(it.get("rank", 0)) == int(rank):
+                return it
+        except Exception:
+            continue
+    return None
+
+
+def analyse_email(key: str, notify: bool = True) -> dict:
+    item = get_email(key)
+    if not item:
+        raise FileNotFoundError(f"Email not found for key {key}")
+    md_path = Path(item.get("md_path", ""))
+    body = ""
+    if md_path.exists():
+        body = md_path.read_text(encoding="utf-8", errors="replace")
+    from scripts.analyst import email_readthrough
+
+    analysis = email_readthrough(
+        subject=item.get("subject", ""),
+        sender=item.get("sender", ""),
+        body=body,
+    )
+    analysis_path = EMAIL_DIR / f"{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{key}_analysis.md"
+    analysis_path.write_text("# Email Analysis\n\n" + analysis + "\n", encoding="utf-8")
+    kb.index_text(
+        title=f"Email Analysis - {item.get('subject', key)[:120]}",
+        text=analysis,
+        source_type="email",
+        source_uri=f"email-analysis:{key}:{analysis_path.name}",
+        source_path=str(analysis_path),
+        metadata={"email_key": key, "subject": item.get("subject")},
+        force=True,
+    )
+    if notify:
+        telegram_send_markdownish_html(analysis)
+    return {"key": key, "subject": item.get("subject"), "analysis_path": str(analysis_path)}

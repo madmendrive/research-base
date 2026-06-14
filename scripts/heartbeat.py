@@ -19,7 +19,7 @@ DEFAULT_AGENDA = {
     "timezone": "Asia/Hong_Kong",
     "folder": r"C:\Users\Owner\Downloads\research-inbox",
     "folder_sweep_times": ["08:30", "20:30"],
-    "email_sweep_times": ["01:00", "13:00"],
+    "email_sweep_times": ["16:00"],
     "headline_sweep_times": ["02:00", "08:00", "14:00", "20:00"],
     "headline_interval_hours": 6,
     "headline_window_hours": 24,
@@ -182,7 +182,9 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
             state[run_key] = now.isoformat(timespec="seconds")
 
         email_times = agenda.get("email_sweep_times") or []
-        email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=False)
+        # catch_up: once-daily now, so a slot missed during downtime should
+        # still run on startup rather than skip the day's research email.
+        email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=True)
         if email_due:
             scheduled, run_key = email_due
             enqueue_job(

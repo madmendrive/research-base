@@ -263,7 +263,8 @@ HELP_TEXT = (
     "/note TARGET TEXT - store your own note\n"
     "/download TICKER  - queue IR/regulatory download\n"
     "/pending          - show held low-confidence files\n"
-    "/headline_#       - analyse one item from the latest Tech Brief\n\n"
+    "/headline_#       - analyse one item from the latest Tech Brief\n"
+    "/email_#          - analyse one item from the latest email sweep\n\n"
     "Research memory:\n"
     "/memory SUBJECT   - structured views/estimates snapshot\n"
     "/mapstatus        - structured memory coverage\n\n"
@@ -604,6 +605,30 @@ async def _queue_latest_headline_by_rank(update: Update, rank: int) -> bool:
     return True
 
 
+async def _queue_latest_email_by_rank(update: Update, rank: int) -> bool:
+    from scripts.jobs import enqueue_job
+    from scripts.email_sweep import get_email_by_rank
+
+    item = get_email_by_rank(rank)
+    if not item:
+        await update.message.reply_text("Could not find that email in the latest email sweep.")
+        return True
+    key = item.get("key")
+    if not key:
+        await update.message.reply_text("That email is missing its analysis key.")
+        return True
+    job_id = enqueue_job(
+        "analyse_email",
+        {"key": key, "notify": True},
+        dedupe_key=f"analyse_email:{key}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
+    )
+    await update.message.reply_text(
+        f"Queued analysis for email #{rank}: {item.get('subject', '')[:160]}\n"
+        f"Job #{job_id}."
+    )
+    return True
+
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return await _deny(update)
@@ -766,6 +791,11 @@ async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         rank_text = command.split("_", 1)[1].split("@", 1)[0]
         if rank_text.isdigit():
             await _queue_latest_headline_by_rank(update, int(rank_text))
+            return
+    if command.startswith("/email_"):
+        rank_text = command.split("_", 1)[1].split("@", 1)[0]
+        if rank_text.isdigit():
+            await _queue_latest_email_by_rank(update, int(rank_text))
             return
     await update.message.reply_text("Unknown command. /help for the list.")
 
