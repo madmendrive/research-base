@@ -36,6 +36,120 @@ def cli():
     pass
 
 
+@cli.command("download-all")
+@click.option("--markets", default="US,TW,JP,KR", show_default=True,
+              help="Comma-separated markets to include.")
+@click.option("--since-new", default=2020, show_default=True, type=int,
+              help="Download-from year for tickers with no data yet.")
+@click.option("--since-existing", default=2026, show_default=True, type=int,
+              help="Download-from year for tickers that already have data.")
+@click.option("--include-existing", is_flag=True,
+              help="Also refresh tickers that already have materials (default: outstanding only).")
+@click.option("--only", default="", help="Comma-separated tickers to restrict to.")
+@click.option("--limit", default=0, type=int, help="Process at most N tickers (0 = all).")
+@click.option("--timeout", default=3600, show_default=True, type=int,
+              help="Per-ticker timeout (seconds).")
+@click.option("--dry-run", is_flag=True, help="List what would run; download nothing.")
+def download_all_cmd(markets, since_new, since_existing, include_existing, only, limit, timeout, dry_run):
+    """Batch-download materials for companies; resumable across runs.
+
+    Processes outstanding (no-data) tickers in the chosen markets, skipping any
+    with no way to download (no regulator code and no IR URL). State lives in
+    data/_download_all_state.json — re-run to resume where it left off.
+    """
+    import subprocess
+    from datetime import datetime, timezone
+
+    root = Path(__file__).parent
+    data_dir = root / "data"
+    state_path = data_dir / "_download_all_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    companies = load_companies()
+
+    market_set = {m.strip().upper() for m in markets.split(",") if m.strip()}
+    code_field = {"US": "sec_cik", "KR": "dart_code", "TW": "twse_code"}
+
+    def has_data(t):
+        base = data_dir / t
+        for sub in ("ir", "sec", "edinet", "dart", "mops", "filings"):
+            p = base / sub
+            if p.is_dir() and any(f.is_file() and not f.name.endswith(".json") for f in p.rglob("*")):
+                return True
+        return False
+
+    def downloadable(t, c):
+        m = c.get("market")
+        cf = code_field.get(m)
+        return bool(c.get("ir_url")) or bool(cf and c.get(cf)) or (m == "JP" and t.split()[0].isdigit())
+
+    def doc_count(t):
+        base = data_dir / t
+        n = 0
+        for sub in ("ir", "sec", "edinet", "dart", "mops"):
+            p = base / sub
+            if p.is_dir():
+                n += sum(1 for f in p.rglob("*") if f.is_file() and f.suffix.lower() in {".pdf", ".htm", ".html"})
+        return n
+
+    only_set = {x.strip() for x in only.split(",") if x.strip()}
+    todo, skipped = [], []
+    for t, c in companies.items():
+        if c.get("market") not in market_set:
+            continue
+        if only_set and t not in only_set:
+            continue
+        hd = has_data(t)
+        if hd and not include_existing:
+            continue
+        if not downloadable(t, c):
+            skipped.append(t)
+            continue
+        st = state.get(t, {})
+        if st.get("status") == "done" or st.get("attempts", 0) >= 3:
+            continue
+        todo.append((t, since_existing if hd else since_new))
+
+    if limit:
+        todo = todo[:limit]
+
+    click.echo(f"download-all: markets={sorted(market_set)} | {len(todo)} to process | "
+               f"{len(skipped)} skipped (no downloader)")
+    if dry_run:
+        for t, since in todo:
+            click.echo(f"  WOULD download {t} (since {since})")
+        if skipped:
+            click.echo("  skipped: " + ", ".join(sorted(skipped)))
+        return
+
+    py = sys.executable
+    ok_n = fail_n = 0
+    for i, (t, since) in enumerate(todo, 1):
+        before = doc_count(t)
+        click.echo(f"[{i}/{len(todo)}] {t} (since {since}) ...", nl=False)
+        rc = -999
+        try:
+            r = subprocess.run([py, "main.py", "download-materials", t, "--since", str(since)],
+                               cwd=str(root), capture_output=True, text=True, timeout=timeout)
+            rc = r.returncode
+        except subprocess.TimeoutExpired:
+            rc = -999
+        after = doc_count(t)
+        st = state.setdefault(t, {})
+        st["attempts"] = st.get("attempts", 0) + 1
+        st["status"] = "done" if rc == 0 else "failed"
+        st["rc"] = rc
+        st["docs"] = after
+        st["ts"] = datetime.now(timezone.utc).isoformat()
+        state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if rc == 0:
+            ok_n += 1
+        else:
+            fail_n += 1
+        click.echo(f" {'OK' if rc == 0 else 'FAIL rc=' + str(rc)} (+{after - before} docs)")
+
+    click.echo(f"\n=== download-all done: {ok_n} ok, {fail_n} failed, {len(skipped)} skipped ===")
+
+
 @cli.command("download-materials")
 @click.argument("ticker")
 @click.option("--limit", default=200, show_default=True,
