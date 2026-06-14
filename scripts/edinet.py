@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import requests as http_requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -348,6 +349,186 @@ def _organize_edinet_filings(ticker, edinet_dir):
             f.write("\n")
 
 
+def _fetch_day(api_key, search_date, retries=2):
+    """Fetch the full EDINET document list for one date (with retry). Returns the
+    raw results list, or [] on persistent failure."""
+    for attempt in range(retries + 1):
+        try:
+            resp = http_requests.get(f"{EDINET_API_BASE}/documents.json", params={
+                "date": search_date, "type": "2", "Subscription-Key": api_key,
+            }, timeout=30)
+            data = resp.json()
+            if data.get("metadata", {}).get("status") == "200":
+                return data.get("results", []) or []
+            return []
+        except Exception:
+            if attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+    return []
+
+
+def _classify_day(search_date, results, by_edinet, by_sec):
+    """Bucket one day's raw EDINET results into (ticker, filing) pairs we keep."""
+    out = []
+    for r in results:
+        doc_type = r.get("docTypeCode") or ""
+        if doc_type not in TARGET_DOC_TYPES:
+            continue
+        ticker = by_edinet.get(r.get("edinetCode")) or by_sec.get((r.get("secCode") or "")[:4])
+        if not ticker:
+            continue
+        out.append((ticker, {
+            "docID": r["docID"],
+            "docTypeCode": doc_type,
+            "docDescription": r.get("docDescription", ""),
+            "filerName": r.get("filerName", ""),
+            "periodStart": r.get("periodStart", ""),
+            "periodEnd": r.get("periodEnd", ""),
+            "submitDateTime": r.get("submitDateTime", ""),
+            "pdfFlag": r.get("pdfFlag", "0"),
+            "filing_date": search_date,
+        }))
+    return out
+
+
+def scan_edinet_concurrent(api_key, targets, start_date, end_date, max_workers=8):
+    """Scan EDINET once over [start_date, end_date], fanning each day's results out
+    to whichever target company they match.
+
+    EDINET's API only lists documents by date, so one shared pass over the range
+    serves every company at once — N companies cost one scan, not N. `targets` is
+    a list of {"ticker", "edinet_code", "sec_code"}. Returns {ticker: [filing, ...]}.
+    """
+    by_edinet = {t["edinet_code"]: t["ticker"] for t in targets if t.get("edinet_code")}
+    by_sec = {t["sec_code"]: t["ticker"] for t in targets if t.get("sec_code")}
+    found = {t["ticker"]: [] for t in targets}
+
+    business_days = []
+    d = start_date
+    while d <= end_date:
+        if d.weekday() < 5:
+            business_days.append(d.isoformat())
+        d += timedelta(days=1)
+    if not business_days:
+        return found
+
+    print(f"  Scanning {len(business_days)} business days ({start_date}..{end_date}) "
+          f"for {len(targets)} company(ies), {max_workers} parallel...")
+    done = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        future_to_date = {ex.submit(_fetch_day, api_key, ds): ds for ds in business_days}
+        for fut in as_completed(future_to_date):
+            ds = future_to_date[fut]
+            for ticker, filing in _classify_day(ds, fut.result(), by_edinet, by_sec):
+                found[ticker].append(filing)
+            done += 1
+            if done % 200 == 0:
+                print(f"    ...{done}/{len(business_days)} days")
+    print(f"  Scan complete: {sum(len(v) for v in found.values())} matching filing(s).")
+    return found
+
+
+def _download_and_organize(ticker, api_key, edinet_dir, all_found, max_workers=4):
+    """Download each filing's PDF (in parallel) and organize into filings/."""
+    download_log = []
+    pending = []
+    for filing in all_found:
+        dest_name = f"{filing['docTypeCode']}_{filing['filing_date']}_{filing['docID']}.pdf"
+        dest_path = edinet_dir / dest_name
+        if dest_path.exists():
+            download_log.append(filing)
+        else:
+            pending.append((filing, dest_path))
+
+    downloaded = 0
+    if pending:
+        def _dl(item):
+            filing, dest_path = item
+            return filing, dest_path, _download_filing(api_key, filing["docID"], dest_path)
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for filing, dest_path, ok in ex.map(_dl, pending):
+                if ok:
+                    downloaded += 1
+                    print(f"    Saved: {dest_path.name} ({round(dest_path.stat().st_size / 1024)} KB)")
+                else:
+                    print(f"    Failed: {filing['docID']}")
+                download_log.append(filing)
+
+    log_path = edinet_dir / "download_log.json"
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(download_log, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print(f"  Downloaded {downloaded} new filing(s).")
+    total_pdfs = len(list(edinet_dir.glob("*.pdf")))
+    print(f"  Total PDFs in edinet/: {total_pdfs}")
+    if total_pdfs > 0:
+        print(f"\n=== Organizing EDINET filings: {ticker} ===")
+        _organize_edinet_filings(ticker, edinet_dir)
+        total_organized = len(list((DATA_DIR / ticker / "filings").rglob("*.pdf")))
+        print(f"=== Organized {total_organized} filing(s) ===")
+    return downloaded
+
+
+def download_edinet_filings_bulk(tickers, since_year=2020, max_workers=8):
+    """Scan EDINET for many JP companies in ONE shared pass, then download each.
+
+    The caller assembles the full JP company list up front; we resolve each to its
+    EDINET / securities code, sweep the date range once, and bucket every day's
+    results to the right company. Resumes from the earliest unscanned date across
+    the set, so already-current companies don't force a full re-scan.
+    """
+    api_key = os.getenv("EDINET_API_KEY")
+    if not api_key:
+        print("Skipping EDINET — EDINET_API_KEY not set in .env")
+        return
+
+    companies = _load_companies()
+    end_date = date.today()
+    targets, state_by_ticker, earliest = [], {}, end_date
+    for ticker in tickers:
+        company = companies.get(ticker, {})
+        if company.get("market") != "JP":
+            continue
+        edinet_code = company.get("edinet_code")
+        sec_code = None
+        if not edinet_code:
+            num = ticker.split()[0]
+            if num.isdigit():
+                sec_code = num
+            else:
+                continue
+        edinet_dir = DATA_DIR / ticker / "edinet"
+        edinet_dir.mkdir(parents=True, exist_ok=True)
+        st = _load_scan_state(edinet_dir)
+        state_by_ticker[ticker] = (edinet_dir, st)
+        targets.append({"ticker": ticker, "edinet_code": edinet_code, "sec_code": sec_code})
+        if st.get("last_scanned_date"):
+            resume = date.fromisoformat(st["last_scanned_date"]) + timedelta(days=1)
+        else:
+            resume = date(since_year, 1, 1)
+        earliest = min(earliest, resume)
+
+    if not targets:
+        print("No JP companies to scan for EDINET.")
+        return
+
+    start_date = min(earliest, end_date)
+    print(f"\n=== EDINET bulk scan: {len(targets)} JP company(ies), {start_date}..{end_date} ===")
+    found = scan_edinet_concurrent(api_key, targets, start_date, end_date, max_workers=max_workers)
+
+    for target in targets:
+        ticker = target["ticker"]
+        edinet_dir, st = state_by_ticker[ticker]
+        already = {d["docID"] for d in st.get("found_docs", [])}
+        new = [f for f in found[ticker] if f["docID"] not in already]
+        st["last_scanned_date"] = end_date.isoformat()
+        st["found_docs"] = st.get("found_docs", []) + new
+        _save_scan_state(edinet_dir, st)
+        if st["found_docs"]:
+            print(f"\n--- {ticker}: {len(new)} new, {len(st['found_docs'])} total ---")
+            _download_and_organize(ticker, api_key, edinet_dir, st["found_docs"])
+
+
 def download_edinet_filings(ticker, since_year=2020):
     """Main entry point: download EDINET filings for a Japanese company."""
     api_key = os.getenv("EDINET_API_KEY")
@@ -392,85 +573,13 @@ def download_edinet_filings(ticker, since_year=2020):
             start_date = resume_date
             print(f"  Resuming scan from {start_date}")
 
-    print(f"  Scanning {start_date} to {end_date} for filings...")
-
-    # Iterate over business days
-    new_filings = []
-    d = start_date
-    dates_checked = 0
-
-    while d <= end_date:
-        if d.weekday() < 5:  # Skip weekends
-            results = _search_date(api_key, d.isoformat(), edinet_code, sec_code)
-            for r in results:
-                if r["docID"] not in already_found:
-                    new_filings.append(r)
-                    already_found.add(r["docID"])
-                    desc = r.get("docDescription", "")
-                    safe_desc = desc.encode("ascii", errors="replace").decode()
-                    print(f"    Found: {d} | {r['docTypeCode']} | {safe_desc}")
-
-            dates_checked += 1
-            # Save state periodically (every 50 dates)
-            if dates_checked % 50 == 0:
-                state["last_scanned_date"] = d.isoformat()
-                state["found_docs"] = state.get("found_docs", []) + new_filings
-                _save_scan_state(edinet_dir, state)
-                new_filings = []
-
-            time.sleep(REQUEST_DELAY)
-        d += timedelta(days=1)
-
-    # Final state save
+    target = {"ticker": ticker, "edinet_code": edinet_code, "sec_code": sec_code}
+    found = scan_edinet_concurrent(api_key, [target], start_date, end_date)
+    new_filings = [f for f in found[ticker] if f["docID"] not in already_found]
     state["last_scanned_date"] = end_date.isoformat()
     all_found = state.get("found_docs", []) + new_filings
     state["found_docs"] = all_found
     _save_scan_state(edinet_dir, state)
+    print(f"  Found {len(all_found)} filing(s) total ({len(new_filings)} new).")
 
-    print(f"  Checked {dates_checked} business days, found {len(all_found)} filing(s) total.")
-
-    # Download filings
-    download_log = []
-    downloaded = 0
-
-    for filing in all_found:
-        doc_id = filing["docID"]
-        doc_type = filing["docTypeCode"]
-        filing_date = filing["filing_date"]
-        dest_name = f"{doc_type}_{filing_date}_{doc_id}.pdf"
-        dest_path = edinet_dir / dest_name
-
-        if dest_path.exists():
-            download_log.append(filing)
-            continue
-
-        desc = filing.get("docDescription", "")
-        safe_desc = desc.encode("ascii", errors="replace").decode()
-        print(f"\n  Downloading: {safe_desc}...")
-
-        if _download_filing(api_key, doc_id, dest_path):
-            size_kb = round(dest_path.stat().st_size / 1024)
-            print(f"    Saved: {dest_name} ({size_kb} KB)")
-            downloaded += 1
-        else:
-            print(f"    Failed to download.")
-
-        download_log.append(filing)
-        time.sleep(REQUEST_DELAY)
-
-    # Save download log
-    log_path = edinet_dir / "download_log.json"
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump(download_log, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-
-    print(f"\n  Downloaded {downloaded} new filing(s).")
-    total_pdfs = len(list(edinet_dir.glob("*.pdf")))
-    print(f"  Total PDFs in edinet/: {total_pdfs}")
-
-    # Organize into filings/
-    if total_pdfs > 0:
-        print(f"\n=== Organizing EDINET filings: {ticker} ===")
-        _organize_edinet_filings(ticker, edinet_dir)
-        total_organized = len(list((DATA_DIR / ticker / "filings").rglob("*.pdf")))
-        print(f"\n=== Organized {total_organized} filing(s) ===")
+    _download_and_organize(ticker, api_key, edinet_dir, all_found)
