@@ -1150,103 +1150,128 @@
   },
   "AAOI": {
     "name": "Applied Optoelectronics",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001158114"
   },
   "ACLS": {
     "name": "Axcelis Technologies",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001113232"
   },
   "AEHR": {
     "name": "Aehr Test Systems",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001040470"
   },
   "AEP": {
     "name": "American Electric Power",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000004904"
   },
   "APH": {
     "name": "Amphenol Corp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000820313"
   },
   "ASTS": {
     "name": "AST SpaceMobile",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001780312"
   },
   "AUR": {
     "name": "Aurora Innovation",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001828108"
   },
   "AXTI": {
     "name": "AXT Inc",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001051627"
   },
   "BE": {
     "name": "Bloom Energy",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001664703"
   },
   "BKSY": {
     "name": "BlackSky Technology",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001753539"
   },
   "CACI": {
     "name": "CACI International",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000016058"
   },
   "CBRS": {
     "name": "Cerebras Systems",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0002021728"
   },
   "CDNS": {
     "name": "Cadence Design Systems",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000813672"
   },
   "CLF": {
     "name": "Cleveland-Cliffs",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000764065"
   },
   "CLS": {
     "name": "Celestica",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001030894"
   },
   "COHU": {
     "name": "Cohu Inc",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000021535"
   },
   "CRWV": {
     "name": "CoreWeave",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001769628"
   },
   "CSCO": {
     "name": "Cisco Systems",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000858877"
   },
   "DY": {
     "name": "Dycom Industries",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000067215"
   },
   "ENTG": {
     "name": "Entegris",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001101302"
   },
   "EQIX": {
     "name": "Equinix",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001101239"
   },
   "ETN": {
     "name": "Eaton Corporation",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001551182"
   },
   "FCEL": {
     "name": "FuelCell Energy",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000886128"
   },
   "FLEX": {
     "name": "Flex Ltd",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000866374"
   },
   "FN": {
     "name": "Fabrinet",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001408710"
   },
   "FYBR": {
     "name": "Frontier Communications",
@@ -1254,103 +1279,128 @@
   },
   "GEV": {
     "name": "GE Vernova",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001996810"
   },
   "GSAT": {
     "name": "Globalstar",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001366868"
   },
   "ICHR": {
     "name": "Ichor Holdings",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001652535"
   },
   "IONQ": {
     "name": "IonQ",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001824920"
   },
   "JBL": {
     "name": "Jabil Inc",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000898293"
   },
   "KEYS": {
     "name": "Keysight Technologies",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001601046"
   },
   "LPTH": {
     "name": "LightPath Technologies",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000889971"
   },
   "LUMN": {
     "name": "Lumen Technologies",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000018926"
   },
   "LWLG": {
     "name": "Lightwave Logic",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001325964"
   },
   "MBLY": {
     "name": "Mobileye Global",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001910139"
   },
   "MCHP": {
     "name": "Microchip Technology",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000827054"
   },
   "MKSI": {
     "name": "MKS Instruments",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001049502"
   },
   "MP": {
     "name": "MP Materials",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001801368"
   },
   "MRVL": {
     "name": "Marvell Technology",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001835632"
   },
   "MTSI": {
     "name": "MACOM Technology Solutions",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001493594"
   },
   "MXL": {
     "name": "MaxLinear",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001288469"
   },
   "NBIS": {
     "name": "Nebius Group",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001513845"
   },
   "NEE": {
     "name": "NextEra Energy",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000753308"
   },
   "NOVT": {
     "name": "Novanta",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001076930"
   },
   "NTAP": {
     "name": "NetApp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001002047"
   },
   "NVMI": {
     "name": "Nova Ltd",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001109345"
   },
   "ON": {
     "name": "ON Semiconductor",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001097864"
   },
   "ONTO": {
     "name": "Onto Innovation",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000704532"
   },
   "POET": {
     "name": "POET Technologies",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001437424"
   },
   "POWI": {
     "name": "Power Integrations",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000833640"
   },
   "PSTG": {
     "name": "Pure Storage",
@@ -1358,27 +1408,33 @@
   },
   "QBTS": {
     "name": "D-Wave Quantum",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001907982"
   },
   "RGTI": {
     "name": "Rigetti Computing",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001838359"
   },
   "RKLB": {
     "name": "Rocket Lab USA",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001819994"
   },
   "SANM": {
     "name": "Sanmina Corp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000897723"
   },
   "SITM": {
     "name": "SiTime Corporation",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001451809"
   },
   "SMTC": {
     "name": "Semtech Corp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000088941"
   },
   "SPCX": {
     "name": "SpaceX",
@@ -1386,27 +1442,33 @@
   },
   "TEL": {
     "name": "TE Connectivity",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001385157"
   },
   "TSEM": {
     "name": "Tower Semiconductor",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000928876"
   },
   "TXN": {
     "name": "Texas Instruments",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000097476"
   },
   "UCTT": {
     "name": "Ultra Clean Holdings",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001275014"
   },
   "VIAV": {
     "name": "Viavi Solutions",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000912093"
   },
   "WRD": {
     "name": "WeRide",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001867729"
   },
   "AWX SP": {
     "name": "AEM Holdings",
@@ -1454,55 +1516,68 @@
   },
   "VST": {
     "name": "Vistra Corp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001692819"
   },
   "CEG": {
     "name": "Constellation Energy",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001868275"
   },
   "TLN": {
     "name": "Talen Energy",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001622536"
   },
   "MOD": {
     "name": "Modine Manufacturing",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000067347"
   },
   "SNDK": {
     "name": "SanDisk Corp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0002023554"
   },
   "IREN": {
     "name": "IREN Limited",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001878848"
   },
   "CORZ": {
     "name": "Core Scientific",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001839341"
   },
   "APLD": {
     "name": "Applied Digital",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001144879"
   },
   "CIFR": {
     "name": "Cipher Mining",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001819989"
   },
   "RIOT": {
     "name": "Riot Platforms",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001167419"
   },
   "BTDR": {
     "name": "Bitdeer Technologies",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001899123"
   },
   "HUT": {
     "name": "Hut 8 Corp",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001964789"
   },
   "CLSK": {
     "name": "CleanSpark",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000827876"
   },
   "BITF": {
     "name": "Bitfarms",
@@ -1510,7 +1585,8 @@
   },
   "RDW": {
     "name": "Redwire Corporation",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001819810"
   },
   "AVIO.IM": {
     "name": "Avio S.p.A.",
@@ -1558,7 +1634,8 @@
   },
   "Cohu": {
     "name": "Cohu, Inc.",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000021535"
   },
   "Chroma ATE": {
     "name": "Chroma ATE Inc",
@@ -1753,5 +1830,9 @@
     "name": "Victory Giant Technology (H-share)",
     "market": "HK",
     "ir_url": ""
+  },
+  "SILEGY": {
+    "name": "Silergy Corp",
+    "market": "TW"
   }
 }
