@@ -1484,11 +1484,13 @@
   },
   "402340 KS": {
     "name": "SK Square",
-    "market": "KR"
+    "market": "KR",
+    "dart_code": "01596425"
   },
   "6173 TT": {
     "name": "Prosperity Dielectrics",
-    "market": "TW"
+    "market": "TW",
+    "twse_code": "6173"
   },
   "6278 JT": {
     "name": "Union Tool",

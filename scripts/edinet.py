@@ -109,8 +109,8 @@ def _period_to_fiscal(period_end, fy_end_month, filing_type, filing_date=None):
     return None, None
 
 
-def _search_date(api_key, search_date, edinet_code):
-    """Search EDINET for filings on a specific date matching edinet_code."""
+def _search_date(api_key, search_date, edinet_code, sec_code=None):
+    """Search EDINET for a date's filings by EDINET code or securities code."""
     resp = http_requests.get(f"{EDINET_API_BASE}/documents.json", params={
         "date": search_date,
         "type": "2",
@@ -123,7 +123,15 @@ def _search_date(api_key, search_date, edinet_code):
 
     results = []
     for r in data.get("results", []):
-        if r.get("edinetCode") != edinet_code:
+        ec = r.get("edinetCode")
+        sc = r.get("secCode") or ""
+        # Match by EDINET code when configured, else by the 4-digit securities
+        # code derived from the "XXXX JT" ticker (EDINET secCode is 5 chars).
+        if edinet_code and ec == edinet_code:
+            pass
+        elif sec_code and sc[:4] == sec_code:
+            pass
+        else:
             continue
         doc_type = r.get("docTypeCode") or ""
         if doc_type not in TARGET_DOC_TYPES:
@@ -354,12 +362,17 @@ def download_edinet_filings(ticker, since_year=2020):
         return
 
     edinet_code = company.get("edinet_code")
+    sec_code = None
     if not edinet_code:
-        print(f"No EDINET code configured for {ticker}, skipping.")
-        return
+        num = ticker.split()[0]
+        if num.isdigit():
+            sec_code = num  # resolve by securities code from the ticker
+        else:
+            print(f"No EDINET code and non-numeric ticker for {ticker}, skipping.")
+            return
 
     print(f"\n=== EDINET Downloader: {ticker} — {company.get('name', '?')} ===")
-    print(f"EDINET code: {edinet_code}")
+    print(f"  Matching by: {('EDINET code ' + edinet_code) if edinet_code else ('securities code ' + sec_code)}")
 
     edinet_dir = DATA_DIR / ticker / "edinet"
     edinet_dir.mkdir(parents=True, exist_ok=True)
@@ -388,7 +401,7 @@ def download_edinet_filings(ticker, since_year=2020):
 
     while d <= end_date:
         if d.weekday() < 5:  # Skip weekends
-            results = _search_date(api_key, d.isoformat(), edinet_code)
+            results = _search_date(api_key, d.isoformat(), edinet_code, sec_code)
             for r in results:
                 if r["docID"] not in already_found:
                     new_filings.append(r)

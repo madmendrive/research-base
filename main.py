@@ -89,21 +89,20 @@ def download_materials(ticker, limit, since, deep):
         if n:
             click.echo(f"Organized {n} IR file(s) into filings/")
 
-        # Analyze gaps
+        # Analyze gaps (informational). The regulator downloaders below run
+        # regardless: IR scrapes miss recent/JS-injected filings, and the
+        # downloaders are idempotent (they skip files already on disk), so a
+        # "no gaps" verdict from the IR-based scan must not skip them.
         gaps = analyze_gaps(ticker, since)
-        has_gaps = print_gap_report(ticker, gaps)
+        print_gap_report(ticker, gaps)
 
-        if not has_gaps:
-            return
-
-        # Fill gaps with regulatory downloaders
+        # Always consult the market regulator for the latest filings.
         if market == "JP":
-            if gaps["missing_annual"] or gaps["missing_quarterly"]:
-                click.echo(f"\n  Checking EDINET for gaps...")
-                from scripts.edinet import download_edinet_filings
-                download_edinet_filings(ticker, since_year=since)
+            click.echo(f"\n  Checking EDINET...")
+            from scripts.edinet import download_edinet_filings
+            download_edinet_filings(ticker, since_year=since)
 
-            # Re-check after EDINET
+            # TDNet only for anything EDINET didn't cover.
             gaps = analyze_gaps(ticker, since)
             if gaps["missing_annual"] or gaps["missing_quarterly"]:
                 click.echo(f"\n  Checking TDNet for remaining gaps...")
@@ -111,12 +110,12 @@ def download_materials(ticker, limit, since, deep):
                 download_tdnet_filings(ticker, since_year=since)
 
         elif market == "TW":
-            click.echo(f"\n  Checking MOPS for gaps...")
+            click.echo(f"\n  Checking MOPS...")
             from scripts.mops import download_mops_filings
             download_mops_filings(ticker, since_year=since)
 
         elif market == "KR":
-            click.echo(f"\n  Checking DART for gaps...")
+            click.echo(f"\n  Checking DART...")
             from scripts.dart import download_dart_filings
             download_dart_filings(ticker, since_year=since)
 

@@ -510,6 +510,21 @@ def scrape_ir(ticker, limit=DEFAULT_LIMIT, since_year=DEFAULT_SINCE_YEAR, deep=F
     if external:
         print(f"  ({len(external)} external link(s) skipped)")
 
+    # If the requests/heuristic path found nothing on the main page, the file
+    # list and nav are likely JS-injected (e.g. TSMC, Acer). Force a Playwright
+    # render of the main page and re-extract before giving up.
+    if not all_file_urls and not _find_section_links(main_html, base_url):
+        print("  Main page looks empty — forcing Playwright render...")
+        pw_html, pw_final = _fetch_page_playwright(ir_url)
+        if pw_html:
+            main_html = pw_html
+            base_url = pw_final or base_url
+            all_file_urls, external = _find_downloadable_links(
+                main_html, base_url, ir_url, since_year,
+            )
+            all_external_skipped |= external
+            print(f"  (Playwright re-render) Found {len(all_file_urls)} downloadable file(s).")
+
     visited_pages = [base_url]
 
     # --- Step 2b: Add any extra IR URLs from config ---
