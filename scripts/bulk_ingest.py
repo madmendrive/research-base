@@ -133,10 +133,13 @@ def _auto_add_tickers(proposals: list[dict]) -> list[str]:
             continue
         if market not in ("US", "JP", "TW", "KR", "HK", "CN", "SG", "UK", "EU", "OTHER"):
             market = "US"  # safest default for unidentified market
-        companies[ticker] = {
-            "name": name,
-            "market": market,
-        }
+        entry = {"name": name, "market": market}
+        try:  # best-effort: resolve the regulator code so it's downloadable now
+            from scripts.regulator_codes import resolve_code
+            entry.update(resolve_code(ticker, name, market))
+        except Exception:
+            pass
+        companies[ticker] = entry
         added.append(ticker)
     if skipped:
         print(f"  Skipped ticker proposals (format/duplicate): {', '.join(skipped[:10])}")

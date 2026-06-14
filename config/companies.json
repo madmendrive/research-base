@@ -1594,14 +1594,6 @@
     "name": "STMicroelectronics",
     "market": "EU"
   },
-  "PI": {
-    "name": "Power Integrations, Inc.",
-    "market": "US"
-  },
-  "TI": {
-    "name": "Texas Instruments Incorporated",
-    "market": "US"
-  },
   "SPG": {
     "name": "SPG (unnamed Korean precision components maker)",
     "market": "KR"
@@ -1610,16 +1602,8 @@
     "name": "Hemlock Semiconductor (placeholder)",
     "market": "US"
   },
-  "TOWER": {
-    "name": "Tower Semiconductor",
-    "market": "US"
-  },
   "AYAR": {
     "name": "Ayar Labs",
-    "market": "US"
-  },
-  "VIAVI": {
-    "name": "Viavi Solutions",
     "market": "US"
   },
   "TRIO-TECH": {
@@ -1706,31 +1690,38 @@
   },
   "6415 TT": {
     "name": "Silergy Corp",
-    "market": "TW"
+    "market": "TW",
+    "twse_code": "6415"
   },
   "AVT": {
     "name": "Avnet, Inc.",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0000008858"
   },
   "CAMT": {
     "name": "Camtek Ltd",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001109138"
   },
   "EXTR": {
     "name": "Extreme Networks, Inc.",
-    "market": "US"
+    "market": "US",
+    "sec_cik": "0001078271"
   },
   "005380 KS": {
     "name": "Hyundai Motor Group",
-    "market": "KR"
+    "market": "KR",
+    "dart_code": "00164742"
   },
   "108490 KS": {
     "name": "ROBOTIS Co. Ltd",
-    "market": "KR"
+    "market": "KR",
+    "dart_code": "00946030"
   },
   "277810 KS": {
     "name": "Rainbow Robotics (Samsung-linked robot OEM)",
-    "market": "KR"
+    "market": "KR",
+    "dart_code": "01261644"
   },
   "IFX GR": {
     "name": "Infineon Technologies AG",

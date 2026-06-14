@@ -380,9 +380,19 @@ def add_company():
 
     if market in reg_prompts:
         key, prompt_text = reg_prompts[market]
-        value = click.prompt(prompt_text, default="", show_default=False)
-        if value:
-            entry[key] = value
+        resolved = {}
+        try:
+            from scripts.regulator_codes import resolve_code
+            resolved = resolve_code(ticker, name, market)
+        except Exception as e:
+            click.echo(f"  (code lookup failed: {e})")
+        if resolved:
+            entry.update(resolved)
+            click.echo(f"  Auto-resolved {', '.join(f'{k}={v}' for k, v in resolved.items())}")
+        else:
+            value = click.prompt(prompt_text, default="", show_default=False)
+            if value:
+                entry[key] = value
 
     companies = load_companies()
 
@@ -394,6 +404,44 @@ def add_company():
     companies[ticker] = entry
     save_companies(companies)
     click.echo(f"Added {ticker} ({name}) to companies.json.")
+
+
+@cli.command("backfill-codes")
+@click.option("--apply", "do_apply", is_flag=True,
+              help="Write resolved codes to companies.json (default: dry-run).")
+def backfill_codes_cmd(do_apply):
+    """Resolve missing regulator codes (SEC CIK / TWSE / DART) for all companies.
+
+    US needs a SEC CIK, KR a DART corp code, TW a TWSE code; JP needs none
+    (EDINET resolves by the ticker's securities code). Run after adding tickers.
+    """
+    from scripts.regulator_codes import resolve_code, MARKET_CODE_FIELD
+
+    companies = load_companies()
+    filled, unresolved = {}, []
+    for ticker, c in companies.items():
+        field = MARKET_CODE_FIELD.get(c.get("market"))
+        if not field or c.get(field):
+            continue
+        try:
+            res = resolve_code(ticker, c.get("name", ""), c.get("market", ""))
+        except Exception as e:
+            click.echo(f"  lookup error for {ticker}: {e}")
+            res = {}
+        (filled.__setitem__(ticker, res) if res else unresolved.append(ticker))
+
+    click.echo(f"Resolvable now: {len(filled)} | still missing: {len(unresolved)}")
+    for t, res in sorted(filled.items()):
+        click.echo(f"  {t}: {res}")
+    if unresolved:
+        click.echo(f"\nUnresolved ({len(unresolved)}): {', '.join(sorted(unresolved)[:40])}")
+    if do_apply and filled:
+        for t, res in filled.items():
+            companies[t].update(res)
+        save_companies(companies)
+        click.echo(f"\nApplied {len(filled)} codes to companies.json.")
+    elif not do_apply:
+        click.echo("\nDry-run. Re-run with --apply to write.")
 
 
 @cli.command("bulk-ingest")
