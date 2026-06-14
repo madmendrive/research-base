@@ -396,7 +396,7 @@ def _process_job(job: dict) -> str:
         stats = headline_sweep(
             notify=bool(payload.get("notify", True)),
             max_digest_items=int(payload.get("max_digest_items", payload.get("max_items", 20)) or 20),
-            window_hours=int(payload.get("window_hours", 6) or 6),
+            window_hours=int(payload.get("window_hours", 24) or 24),
         )
         return json.dumps(stats)
 

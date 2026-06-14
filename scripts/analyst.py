@@ -150,8 +150,7 @@ ANALYST_TOOLS = [
                 "window_hours": {
                     "type": "integer",
                     "description": "headline_sweep only: hours of headlines the digest covers "
-                                   "(default 6). Use a larger window to catch up missed runs, "
-                                   "e.g. 12 if two slots were missed.",
+                                   "(default 24). Use a larger window to catch up after downtime.",
                 },
             },
             "required": ["kind"],
@@ -190,7 +189,7 @@ ANALYST_TOOLS = [
 ]
 
 _ANALYST_JOB_PAYLOADS = {
-    "headline_sweep": {"notify": True, "window_hours": 6, "max_digest_items": 20},
+    "headline_sweep": {"notify": True, "window_hours": 24, "max_digest_items": 20},
     "email_sweep": {"analyse_attachments": False, "extract_research": True, "notify": True},
     "folder_scan": {"notify": True, "folder": r"C:\Users\Owner\Downloads\research-inbox"},
     "kb_reindex": {"source": "all", "notify": True},

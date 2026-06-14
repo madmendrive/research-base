@@ -22,6 +22,8 @@ DEFAULT_AGENDA = {
     "email_sweep_times": ["01:00", "13:00"],
     "headline_sweep_times": ["02:00", "08:00", "14:00", "20:00"],
     "headline_interval_hours": 6,
+    "headline_window_hours": 24,
+    "headline_max_items": 20,
     "study_times": ["03:30"],
     "notify": True,
     "folder_analyse": False,
@@ -204,7 +206,9 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                 scheduled, run_key = headline_due
                 enqueue_job(
                     "headline_sweep",
-                    {"notify": notify, "window_hours": 6, "max_digest_items": 20},
+                    {"notify": notify,
+                     "window_hours": int(agenda.get("headline_window_hours", 24)),
+                     "max_digest_items": int(agenda.get("headline_max_items", 20))},
                     dedupe_key=f"headline_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
                 )
                 state[run_key] = now.isoformat(timespec="seconds")

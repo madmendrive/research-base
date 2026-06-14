@@ -476,8 +476,19 @@ def _published_dt(value: str) -> datetime | None:
         return None
 
 
-def _within_window(value: str, window_hours: int, now: datetime | None = None) -> bool:
-    dt = _published_dt(value)
+def _within_window(value: str, window_hours: int, now: datetime | None = None,
+                   fallback: str | None = None) -> bool:
+    """True if the item is within the recency window.
+
+    Uses the published date when available. Many scraped sources (HTML index
+    pages especially) yield no machine-readable date — for those, callers pass
+    `fallback` = when we first saw the headline, so an undated item that has
+    been sitting on a source's index page for days (first seen long ago) is
+    correctly treated as stale, while a genuinely new undated headline (first
+    seen this sweep) passes. Only when neither a publish date nor a first-seen
+    date is available do we keep the item (no signal to reject on).
+    """
+    dt = _published_dt(value) or _published_dt(fallback)
     if not dt:
         return True
     now = now or datetime.now(timezone.utc)
@@ -1725,7 +1736,7 @@ def _sort_timestamp(item: dict) -> float:
 def headline_sweep(
     notify: bool = False,
     max_digest_items: int = 20,
-    window_hours: int = 6,
+    window_hours: int = 24,
 ) -> dict:
     config = _load_config()
     allowed_sources = _source_list(config)
@@ -1762,9 +1773,15 @@ def headline_sweep(
 
     unique = {}
     for item in all_items:
-        if not _within_window(item.get("published_at", ""), window_hours, now_utc):
-            continue
         key = _headline_key(item)
+        # Undated items fall back to when we first saw this headline; a new
+        # headline this sweep is treated as fresh, a long-reappearing undated
+        # one (old first_seen) is filtered out as stale.
+        prior_seen = seen.get(key) or {}
+        first_seen = prior_seen.get("first_seen_at") or fetched_at
+        if not _within_window(item.get("published_at", ""), window_hours, now_utc,
+                              fallback=first_seen):
+            continue
         previous = unique.get(key)
         if not previous or _sort_timestamp(item) > _sort_timestamp(previous):
             unique[key] = item
