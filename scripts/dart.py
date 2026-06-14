@@ -227,32 +227,22 @@ def _get_dcm_no(rcept_no, page):
 
 
 def _download_pdf(rcept_no, dcm_no, dest_path, page):
-    """Download the PDF from DART's PDF download endpoint.
-    Accepts an existing Playwright page to avoid launching a new browser."""
+    """Download the PDF from DART's pdf.do endpoint.
+
+    DART's pdf.do returns an EMPTY body unless the request carries a Referer
+    pointing at the download popup (pdf/download/main.do); with it, it returns
+    the real application/pdf. Accepts an existing Playwright page (reuses its
+    session/cookies) to avoid launching a new browser.
+    """
+    referer = f"{DART_VIEWER_BASE}/pdf/download/main.do?rcp_no={rcept_no}&dcm_no={dcm_no}"
     url = f"{DART_VIEWER_BASE}/pdf/download/pdf.do?rcp_no={rcept_no}&dcm_no={dcm_no}"
-
     try:
-        # The URL triggers a file download, so use expect_download
-        try:
-            with page.expect_download(timeout=120000) as dl_info:
-                page.goto(url, timeout=120000)
-            download = dl_info.value
-            download.save_as(str(dest_path))
-            return True
-        except Exception:
-            pass
-
-        # Fallback: try reading the response body directly
-        try:
-            resp = page.context.request.get(url, timeout=120000)
-            if resp.ok:
-                body = resp.body()
-                if len(body) > 1000:
-                    dest_path.write_bytes(body)
-                    return True
-        except Exception:
-            pass
-
+        resp = page.context.request.get(url, headers={"referer": referer}, timeout=120000)
+        if resp.ok:
+            body = resp.body()
+            if body[:4] == b"%PDF" and len(body) > 1000:
+                dest_path.write_bytes(body)
+                return True
     except Exception as e:
         safe = str(e).encode("ascii", errors="replace").decode()
         print(f"    Download error: {safe[:80]}")
