@@ -90,6 +90,20 @@ def _add_alias(alias_map: dict[str, str], alias: str, canonical: str) -> None:
         alias_map.setdefault(key, canonical)
 
 
+_CORP_SUFFIXES = re.compile(
+    r"\b(inc|corp|corporation|co|company|ltd|limited|holdings?|plc|technologies|"
+    r"technology|group|ag|sa|nv|llc|lp|the)\b",
+    re.I,
+)
+
+
+def _normalize_name(name: str) -> str:
+    """Strip punctuation + corporate suffixes so 'Chroma ATE Inc' -> 'chroma ate'."""
+    n = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower())
+    n = _CORP_SUFFIXES.sub(" ", n)
+    return re.sub(r"\s+", " ", n).strip()
+
+
 @lru_cache(maxsize=1)
 def alias_map() -> dict[str, str]:
     companies = _load_companies()
@@ -122,6 +136,22 @@ def alias_map() -> dict[str, str]:
     for code, canonicals in code_to_canonicals.items():
         if len(canonicals) == 1:
             _add_alias(aliases, code, next(iter(canonicals)))
+
+    # Company-name aliases: let "Chroma ATE" resolve to 2360 TT. Added only when a
+    # normalized name maps to a single ticker (skip ambiguous collisions); ticker-
+    # form aliases above keep priority via _add_alias's setdefault.
+    name_to_canon: dict[str, set[str]] = defaultdict(set)
+    raw_name: dict[str, str] = {}
+    for canonical, meta in companies.items():
+        norm = _normalize_name((meta or {}).get("name") or "")
+        if norm:
+            name_to_canon[norm].add(canonical)
+            raw_name.setdefault(canonical, ((meta or {}).get("name") or "").strip())
+    for norm, canonicals in name_to_canon.items():
+        if len(canonicals) == 1:
+            canonical = next(iter(canonicals))
+            _add_alias(aliases, norm, canonical)               # suffix-stripped form
+            _add_alias(aliases, raw_name[canonical], canonical)  # full company name
 
     return aliases
 
