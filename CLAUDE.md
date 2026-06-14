@@ -50,7 +50,7 @@ Each dropped PDF flows through:
 | Triage / classification | `claude-haiku-4-5-20251001` | Constrained classification — Haiku is plenty, ~15× cheaper than Opus |
 | Structured extraction | `claude-sonnet-4-6` | Long structured JSON — Sonnet 4.6 is the sweet spot |
 | View-evolution / cross-cut analysis | `claude-opus-4-7` | Synthesis quality matters — Opus earns its keep |
-| IR document classifier | `claude-sonnet-4-20250514` | Just routing 10-K vs earnings; Sonnet is fine, unchanged |
+| IR document classifier | `claude-haiku-4-5-20251001` | Just routing 10-K vs earnings; Haiku is plenty, ~3× cheaper than Sonnet 4 |
 
 Per-call model is passed to `_call_api(..., model=...)` in `scripts/research.py`. Other scripts have their own `_call_api` matching this signature.
 
@@ -177,7 +177,7 @@ Triage MUST pick themes from `KNOWN_THEMES`. New themes are NEVER auto-created �
 
 ## Known Issues / Incomplete
 
-1. **Existing IR-scraper Sonnet 4 model ID** is still `claude-sonnet-4-20250514` in `scripts/classifier.py` and `scripts/extractor.py`. Intentional — those tasks are simple routing and don't need a newer model; cost is dominated by the research pipeline.
+1. **`scripts/classifier.py` now runs Haiku 4.5** (`claude-haiku-4-5-20251001`) for IR-doc routing — ~3× cheaper than Sonnet 4 with no quality loss for this constrained task. Prompt caching doesn't help (static prefix ~180 tokens, below the 1024 cacheable floor; per-doc text is unique), so the model swap is the cost lever. **`scripts/extractor.py` still uses `claude-sonnet-4-20250514`** — left unchanged; that path is lower-volume and the model is adequate for its routing.
 2. **2 macro notes failed to store** (pre-session) — Richard Excell "But, what if?" and CMR 03.15.2026. PDFs copied; JSON extraction needs retry.
 3. **MOPS not implemented for OTC/TPEx stocks** — current MOPS only works for TWSE main board (`TYPEK=sii`). OTC stocks need `TYPEK=otc`.
 4. **Flask zombie processes** — Windows doesn't always kill Python processes cleanly. Server auto-finds free ports (5080-5099).
