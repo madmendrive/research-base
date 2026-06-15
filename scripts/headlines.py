@@ -265,6 +265,8 @@ NATIVE_HTML_INDEXES = {
     "ctee": [
         {"source": "Commercial Times", "url": "https://www.ctee.com.tw/industrynews/technology", "domains": ("ctee.com.tw",)},
         {"source": "Commercial Times", "url": "https://www.ctee.com.tw/livenews", "domains": ("ctee.com.tw",)},
+        {"source": "Commercial Times", "url": "https://www.ctee.com.tw/livenews/industry", "domains": ("ctee.com.tw",)},
+        {"source": "Commercial Times", "url": "https://www.ctee.com.tw/livenews/finance", "domains": ("ctee.com.tw",)},
     ],
     "udn": [
         {"source": "money.udn.com", "url": "https://money.udn.com/money/cate/5591", "domains": ("money.udn.com",)},
