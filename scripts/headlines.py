@@ -1156,8 +1156,14 @@ def _score_item(item: dict) -> tuple[int, dict]:
         if kw in low:
             score += 2
     source = (item.get("source") or "").lower()
-    if any(s in source for s in ("bloomberg", "reuters", "nikkei", "digitimes", "trendforce")):
+    if any(s in source for s in ("bloomberg", "reuters", "nikkei", "wsj", "financial times", "ft")):
         score += 1
+    # Taiwan/Asia trade press: boosted so Chinese-language headlines (which match
+    # fewer English tickers/keywords) aren't crowded out of the digest.
+    if any(s in source for s in ("digitimes", "trendforce", "commercial times", "ctee",
+                                 "udn", "money.udn", "cnyes", "anue", "technews",
+                                 "chinatimes", "china times", "ltn")):
+        score += 3
     enriched = {**item, "score": score, "entities": entities}
     return score, enriched
 
@@ -1737,9 +1743,10 @@ def _sort_timestamp(item: dict) -> float:
 
 def headline_sweep(
     notify: bool = False,
-    max_digest_items: int = 20,
+    max_digest_items: int = 25,
     window_hours: int = 24,
 ) -> dict:
+    max_digest_items = int(os.environ.get("HEADLINE_MAX_DIGEST", str(max_digest_items)))
     config = _load_config()
     allowed_sources = _source_list(config)
     terms = _terms(config)
