@@ -228,7 +228,10 @@ async def _queue_analyst_question(update: Update, question: str, source: str) ->
 
     from scripts.jobs import enqueue_job
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    # Enqueue first: this is a local DB write that can't time out. The cosmetic
+    # typing indicator + ack below talk to Telegram and occasionally time out;
+    # a failure there must never drop the user's question. The worker delivers
+    # the full answer regardless of whether this ack lands.
     job_id = enqueue_job(
         "analyst_question",
         {"question": question, "user_id": update.effective_user.id},
@@ -238,11 +241,15 @@ async def _queue_analyst_question(update: Update, question: str, source: str) ->
     )
     log.info("%s analyst question queued user_id=%s chars=%s job=%s",
              source, update.effective_user.id, len(question), job_id)
-    await update.message.reply_text(
-        "Queued for the analyst. I am checking the local KB and structured research "
-        "memory and will send the full answer here when the synthesis finishes — "
-        "detailed questions can take several minutes."
-    )
+    try:
+        await update.message.chat.send_action(ChatAction.TYPING)
+        await update.message.reply_text(
+            "Queued for the analyst. I am checking the local KB and structured research "
+            "memory and will send the full answer here when the synthesis finishes — "
+            "detailed questions can take several minutes."
+        )
+    except Exception as e:
+        log.warning("analyst ack to user failed (job %s still queued): %s", job_id, e)
 
 
 
