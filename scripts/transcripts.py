@@ -47,22 +47,35 @@ def is_transcript_path(path) -> bool:
 def transcript_routing_hint(meta: dict) -> str:
     """A preamble prepended to the transcript text sent to triage so the show is
     routed as the author and the speakers are captured."""
-    channel = meta.get("channel") or "the podcast/show"
+    channel = (meta.get("channel") or "").strip()
     title = meta.get("title") or ""
+    if channel:
+        author_block = (
+            f"Podcast / show (Channel): {channel}\n"
+            f"Episode title: {title}\n"
+            "Routing instructions (override the generic rules with these):\n"
+            "- Set primary_type = \"macro\".\n"
+            "- The recurring AUTHOR is the show itself. Set primary_subject and "
+            f"\"publisher\" to the show name: \"{channel}\". If \"{channel}\" is not "
+            "already in the author lists, propose it (proposed_new_semis_authors if "
+            "it is a semiconductor / tech-equity show such as SemiAnalysis, else "
+            "proposed_new_macro_authors), and set \"category\" to \"Semis\" or "
+            f"\"Macro\" to match. Use EXACTLY \"{channel}\" as the proposed author "
+            "name (no parenthetical outlet) so it matches primary_subject.\n"
+        )
+    else:
+        author_block = (
+            f"Episode title: {title}\n"
+            "The channel / show name is UNKNOWN. Routing instructions:\n"
+            "- Set primary_type = \"macro\", category = \"Macro\".\n"
+            "- Set primary_subject and \"publisher\" to \"Others\" (the catch-all "
+            "bucket for transcripts whose show is unknown) and propose \"Others\" as "
+            "a new macro author with that exact name. Do not invent a show name.\n"
+        )
     return (
         "=== INGESTION NOTE — THIS IS A PODCAST / VIDEO TRANSCRIPT ===\n"
-        f"Podcast / show (Channel): {channel}\n"
-        f"Episode title: {title}\n"
-        "Routing instructions (override the generic rules with these):\n"
-        f"- Set primary_type = \"macro\".\n"
-        f"- The recurring AUTHOR is the show itself. Set primary_subject and "
-        f"\"publisher\" to the show name: \"{channel}\". If \"{channel}\" is not "
-        "already in the author lists, propose it (proposed_new_semis_authors if "
-        "it is a semiconductor / tech-equity show such as SemiAnalysis, else "
-        "proposed_new_macro_authors), and set \"category\" to \"Semis\" or "
-        f"\"Macro\" to match. Use EXACTLY \"{channel}\" as the proposed author "
-        "name (no parenthetical outlet) so it matches primary_subject.\n"
-        "- Put the individual human SPEAKERS (host plus any guests, by name) in "
+        + author_block
+        + "- Put the individual human SPEAKERS (host plus any guests, by name) in "
         "the \"author\" field.\n"
         "- Still identify every ticker and theme substantively discussed, with "
         "materiality.\n"
