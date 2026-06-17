@@ -46,6 +46,8 @@ def extract_text(path, max_pages=2, max_chars=None):
         text, err = _extract_pdf_text(path, max_pages=max_pages)
     elif suffix in (".htm", ".html"):
         text, err = _extract_html_text(path)
+    elif suffix == ".txt":
+        text, err = _extract_txt_text(path)
     else:
         return None, f"unsupported file type: {suffix}"
 
@@ -87,6 +89,20 @@ def _extract_html_text(path):
         if not text:
             return None, "empty document"
         return text, None
+    except Exception as e:
+        return None, str(e)
+
+
+def _extract_txt_text(path):
+    """Read a plain-text file (e.g. a podcast / video transcript)."""
+    try:
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        text = text.strip()
+        return (text, None) if text else (None, "empty document")
     except Exception as e:
         return None, str(e)
 

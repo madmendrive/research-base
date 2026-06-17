@@ -43,7 +43,7 @@ def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
     queued = 0
     already_seen = 0
     skipped = 0
-    for pdf in sorted(globber("*.pdf")):
+    for pdf in sorted([*globber("*.pdf"), *globber("*.txt")]):
         if not pdf.is_file() or _is_temp_file(pdf):
             skipped += 1
             continue

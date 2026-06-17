@@ -150,6 +150,13 @@ def _triage_with_provider(pdf_path: Path) -> dict[str, Any]:
     from scripts.llm_provider import native_pdf_eligible
 
     text, err = extract_text(pdf_path, max_pages=TRIAGE_MAX_PAGES, max_chars=TRIAGE_MAX_CHARS)
+    # Podcast / video transcripts (.txt): prepend a routing hint so the show is
+    # treated as the recurring macro/semis author and the speakers are captured.
+    if text and str(pdf_path).lower().endswith(".txt"):
+        from scripts.transcripts import parse_transcript, transcript_routing_hint
+        _meta = parse_transcript(text)
+        if _meta:
+            text = transcript_routing_hint(_meta) + text
     config = env_config("TRIAGE", "openai", "gpt-5-mini", timeout=180.0)
     if (err or not text) and native_pdf_eligible(pdf_path):
         # Image-only PDF (no text layer — BofA research, scans): attach the
