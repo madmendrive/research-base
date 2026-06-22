@@ -551,7 +551,6 @@ async def handle_headline_action(update: Update, context: ContextTypes.DEFAULT_T
     if not _is_allowed(update):
         await query.answer("Not authorised.", show_alert=True)
         return
-    await query.answer("Queued headline analysis.")
     data = query.data or ""
     try:
         _, key = data.split(":", 1)
@@ -570,10 +569,14 @@ async def handle_headline_action(update: Update, context: ContextTypes.DEFAULT_T
         {"key": key, "notify": True},
         dedupe_key=f"analyse_headline:{key}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
     )
-    await query.message.reply_text(
-        f"Queued analysis for headline #{item.get('rank', '?')}: {item.get('title', '')[:160]}\n"
-        f"Job #{job_id}."
-    )
+    try:
+        await query.answer("Queued headline analysis.")
+        await query.message.reply_text(
+            f"Queued analysis for headline #{item.get('rank', '?')}: {item.get('title', '')[:160]}\n"
+            f"Job #{job_id}."
+        )
+    except Exception as e:
+        log.warning("headline ack to user failed (job %s still queued): %s", job_id, e)
 
 
 # ---------------------------------------------------------------------------
@@ -597,10 +600,13 @@ async def _queue_latest_headline_by_rank(update: Update, rank: int) -> bool:
         {"key": key, "notify": True},
         dedupe_key=f"analyse_headline:{key}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
     )
-    await update.message.reply_text(
-        f"Queued analysis for headline #{rank}: {item.get('title', '')[:160]}\n"
-        f"Job #{job_id}."
-    )
+    try:
+        await update.message.reply_text(
+            f"Queued analysis for headline #{rank}: {item.get('title', '')[:160]}\n"
+            f"Job #{job_id}."
+        )
+    except Exception as e:
+        log.warning("headline ack to user failed (job %s still queued): %s", job_id, e)
     return True
 
 
