@@ -1730,5 +1730,10 @@
   "AVIO IM": {
     "name": "Avio S.p.A.",
     "market": "EU"
+  },
+  "PONY": {
+    "name": "Pony.ai Inc",
+    "market": "US",
+    "sec_cik": "0001969302"
   }
 }
