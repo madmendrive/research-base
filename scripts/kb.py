@@ -52,6 +52,19 @@ def slugify(value: str, max_len: int = 90) -> str:
     return (value[:max_len] or "untitled").strip("._")
 
 
+_WIN_ILLEGAL = re.compile(r'[<>:"/\\|?*]')
+
+
+def safe_dirname(name: str) -> str:
+    """Sanitize a string for use as a Windows directory name component.
+
+    Replaces ':' with ' -' (readable substitute) and strips other
+    Windows-illegal characters (< > " / \\ | ? *).
+    """
+    result = _WIN_ILLEGAL.sub(lambda m: " -" if m.group() == ":" else "", name or "").strip()
+    return result or "untitled"
+
+
 _schema_ready: set[str] = set()
 
 

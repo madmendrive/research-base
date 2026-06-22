@@ -10,6 +10,7 @@ from pathlib import Path
 
 from anthropic import Anthropic
 
+from scripts import kb
 from scripts.fileio import extract_file_text, write_json_atomic
 from scripts.llm_provider import cached_document_block, call_api, document_message_payload, parse_json_loose
 from scripts.analysis_report import (
@@ -80,11 +81,12 @@ MAX_HISTORY = 50
 # ---------------------------------------------------------------------------
 
 def _ensure_dirs(author):
-    base = _macro_dir() / "authors" / author / "notes"
+    safe = kb.safe_dirname(author)
+    base = _macro_dir() / "authors" / safe / "notes"
     base.mkdir(parents=True, exist_ok=True)
     (_macro_dir() / "themes").mkdir(parents=True, exist_ok=True)
     (_macro_dir() / "analyses").mkdir(parents=True, exist_ok=True)
-    return _macro_dir() / "authors" / author
+    return _macro_dir() / "authors" / safe
 
 
 def _today_prefix():
