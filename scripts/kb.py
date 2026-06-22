@@ -254,17 +254,21 @@ def _author_names(category: str) -> list[str]:
 
 def extract_entities(text: str, title: str = "", metadata: dict | None = None) -> dict:
     metadata = metadata or {}
-    haystack = f"{title}\n{text[:20000]}".lower()
+    raw_haystack = f"{title}\n{text[:20000]}"
+    haystack = raw_haystack.lower()
     companies = _load_companies()
 
     tickers = set(metadata.get("tickers") or [])
     company_names = []
     for ticker, info in companies.items():
         name = (info.get("name") or "").strip()
+        name_zh = (info.get("name_zh") or "").strip()
         ticker_l = ticker.lower()
         if re.search(rf"(?<![A-Za-z0-9]){re.escape(ticker_l)}(?![A-Za-z0-9])", haystack):
             tickers.add(ticker)
         elif name and len(name) > 4 and name.lower() in haystack:
+            tickers.add(ticker)
+        elif name_zh and name_zh in raw_haystack:
             tickers.add(ticker)
         if ticker in tickers and name:
             company_names.append(name)
