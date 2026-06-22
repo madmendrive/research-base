@@ -16,13 +16,15 @@
     "name": "TSMC",
     "market": "TW",
     "ir_url": "https://investor.tsmc.com",
-    "twse_code": "2330"
+    "twse_code": "2330",
+    "name_zh": "台積電"
   },
   "005930 KS": {
     "name": "Samsung Electronics",
     "market": "KR",
     "ir_url": "https://www.samsung.com/global/ir/",
-    "dart_code": "00126380"
+    "dart_code": "00126380",
+    "name_zh": "三星電子"
   },
   "LITE": {
     "name": "Lumentum Holdings",
@@ -115,7 +117,8 @@
       "https://www.unimicron.com/en/money03.html"
     ],
     "twse_code": "3037",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "欣興"
   },
   "6857 JT": {
     "name": "Advantest Corp",
@@ -416,7 +419,8 @@
     "market": "KR",
     "ir_url": "https://www.lginnotek.com/ir/",
     "dart_code": "00105961",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "LG伊諾特"
   },
   "079550 KS": {
     "name": "LIG Nex1 Co Ltd",
@@ -444,7 +448,8 @@
     "market": "KR",
     "ir_url": "https://www.samsungsem.com/global/ir/",
     "dart_code": "00126371",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "三星電機"
   },
   "018260 KS": {
     "name": "Samsung SDS Co Ltd",
@@ -458,14 +463,16 @@
     "market": "KR",
     "ir_url": "https://www.skhynix.com/ir/",
     "dart_code": "00164779",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "SK海力士"
   },
   "1303 TT": {
     "name": "Nan Ya Plastics Corp",
     "market": "TW",
     "ir_url": "https://www.npc.com.tw/j2npc/enus/investor/Annual%20Reports",
     "twse_code": "1303",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "南亞塑膠"
   },
   "1590 TT": {
     "name": "AirTAC International Group",
@@ -482,21 +489,24 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.deltaww.com/en-US/investors/annual-Reports"
-    ]
+    ],
+    "name_zh": "台達電"
   },
   "2317 TT": {
     "name": "Hon Hai Precision Industry",
     "market": "TW",
     "ir_url": "https://www.honhai.com/en-us/investor-relations",
     "twse_code": "2317",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "鴻海"
   },
   "2324 TT": {
     "name": "Compal Electronics Inc",
     "market": "TW",
     "ir_url": "https://www.compal.com/investor-relations",
     "twse_code": "2324",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "仁寶"
   },
   "2337 TT": {
     "name": "Macronix International",
@@ -506,14 +516,16 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.mxic.com.tw/en-us/about/investor-relations/Pages/quarterly-results.aspx"
-    ]
+    ],
+    "name_zh": "旺宏"
   },
   "2345 TT": {
     "name": "Accton Technology Corp",
     "market": "TW",
     "ir_url": "https://www.accton.com/investor/",
     "twse_code": "2345",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "智邦"
   },
   "2353 TT": {
     "name": "Acer Inc",
@@ -523,14 +535,16 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.acer.com/corporate/en/investor-relations/financials/quarterly-reports"
-    ]
+    ],
+    "name_zh": "宏碁"
   },
   "2357 TT": {
     "name": "ASUSTeK Computer Inc",
     "market": "TW",
     "ir_url": "https://www.asus.com/event/investor/",
     "twse_code": "2357",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "華碩"
   },
   "2360 TT": {
     "name": "Chroma ATE Inc",
@@ -540,7 +554,8 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.chromaate.com/en/investors/financial_reports"
-    ]
+    ],
+    "name_zh": "致茂"
   },
   "2395 TT": {
     "name": "Advantech Co Ltd",
@@ -550,7 +565,8 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.advantech.com/en-us/investor/quarterly-results"
-    ]
+    ],
+    "name_zh": "研華"
   },
   "2408 TT": {
     "name": "Nanya Technology Corp",
@@ -561,7 +577,8 @@
     "ir_extra_urls": [
       "https://www.nanya.com/en/IR/42/Annual%20Reports",
       "https://www.nanya.com/en/IR/36/Monthly%20Revenue"
-    ]
+    ],
+    "name_zh": "南亞科"
   },
   "2409 TT": {
     "name": "AUO Corp",
@@ -571,14 +588,16 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.auo.com/en-global/investor_conference/index"
-    ]
+    ],
+    "name_zh": "友達"
   },
   "2454 TT": {
     "name": "MediaTek Inc",
     "market": "TW",
     "ir_url": "https://corp.mediatek.com/investor-relations",
     "twse_code": "2454",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "聯發科"
   },
   "2474 TT": {
     "name": "Catcher Technology Co Ltd",
@@ -588,7 +607,8 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.catcher-group.com/investor_financial_fs.aspx"
-    ]
+    ],
+    "name_zh": "可成"
   },
   "3006 TT": {
     "name": "Elite Semiconductor Memory",
@@ -602,7 +622,8 @@
     "market": "TW",
     "ir_url": "http://www.largan.com.tw/en/investor/finance",
     "twse_code": "3008",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "大立光"
   },
   "3131 TT": {
     "name": "Grand Process Technology",
@@ -646,14 +667,16 @@
     "market": "TW",
     "ir_url": "https://www.innolux.com/en/ir/financials/annual_reports.html",
     "twse_code": "3481",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "群創"
   },
   "3661 TT": {
     "name": "Alchip Technologies Ltd",
     "market": "TW",
     "ir_url": "https://www.alchip.com/investor/",
     "twse_code": "3661",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "世芯"
   },
   "3665 TT": {
     "name": "BizLink Holding Inc",
@@ -667,7 +690,8 @@
     "market": "TW",
     "ir_url": "https://www.aseglobal.com/en/InvestorRelations",
     "twse_code": "3711",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "日月光"
   },
   "4979 TT": {
     "name": "LuxNet Corp",
@@ -727,7 +751,8 @@
     "fiscal_year_end": "December",
     "ir_extra_urls": [
       "https://www.sas-globalwafers.com/en/investor/financial-information_en/"
-    ]
+    ],
+    "name_zh": "環球晶"
   },
   "6510 TT": {
     "name": "Chunghwa Precision Test Tech",
@@ -776,14 +801,16 @@
     "market": "TW",
     "ir_url": "https://www.umc.com/en/IR/index",
     "twse_code": "2303",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "聯電"
   },
   "5347 TT": {
     "name": "Vanguard International Semiconductor",
     "market": "TW",
     "ir_url": "https://www.vis.com.tw/en/investor/",
     "twse_code": "5347",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "世界先進"
   },
   "1605 TT": {
     "name": "Walsin Lihwa Corp",
@@ -804,35 +831,40 @@
     "market": "TW",
     "ir_url": "https://www.winbond.com/hq/investor/",
     "twse_code": "2344",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "華邦電"
   },
   "3231 TT": {
     "name": "Wistron Corp",
     "market": "TW",
     "ir_url": "https://www.wistron.com/investor-relations",
     "twse_code": "3231",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "緯創"
   },
   "6669 TT": {
     "name": "Wiwynn Corp",
     "market": "TW",
     "ir_url": "https://www.wiwynn.com/investor-relations",
     "twse_code": "6669",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "緯穎"
   },
   "2327 TT": {
     "name": "Yageo Corp",
     "market": "TW",
     "ir_url": "https://www.yageo.com/en/investor/",
     "twse_code": "2327",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "國巨"
   },
   "4958 TT": {
     "name": "Zhen Ding Technology Holding",
     "market": "TW",
     "ir_url": "https://www.zdtco.com/en/investor/",
     "twse_code": "4958",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "臻鼎"
   },
   "ADEA": {
     "name": "Adeia Inc",
@@ -1701,7 +1733,8 @@
     "market": "TW",
     "ir_url": "https://www.quantatw.com/Quanta/english/investor/",
     "twse_code": "2382",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "廣達"
   },
   "2049 TT": {
     "name": "Hiwin Technologies",
@@ -1715,7 +1748,8 @@
     "market": "TW",
     "ir_url": "https://www.gigabyte.com/Investor",
     "twse_code": "2376",
-    "fiscal_year_end": "December"
+    "fiscal_year_end": "December",
+    "name_zh": "技嘉"
   },
   "8112 TT": {
     "name": "Supreme Electronics",
