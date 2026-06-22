@@ -15,6 +15,8 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+from scripts import kb
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 STATE_PATH = DATA_DIR / "_bulk_ingest_state.json"
@@ -160,7 +162,7 @@ def _auto_add_macro_authors(proposals: list[dict], category: str = "Macro") -> l
         name = (p.get("name") or "").strip()
         if not name or name in {"Unknown", "News Article"}:
             continue
-        author_dir = base / name
+        author_dir = base / kb.safe_dirname(name)
         if author_dir.exists():
             continue
         (author_dir / "notes").mkdir(parents=True, exist_ok=True)

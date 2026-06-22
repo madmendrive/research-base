@@ -357,7 +357,7 @@ def _destination_for(triage: dict[str, Any], source: Path) -> tuple[Path, str]:
         return DATA_DIR / "Thematic" / subject / "notes" / dest_name, "research"
     if primary_type in {"macro", "news_article"}:
         author = subject if primary_type == "macro" else "News Article"
-        return DATA_DIR / category / "authors" / author / "notes" / dest_name, "research"
+        return DATA_DIR / category / "authors" / kb.safe_dirname(author) / "notes" / dest_name, "research"
     return PENDING_REVIEW_DIR / dest_name, "pending_review"
 
 
