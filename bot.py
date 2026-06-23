@@ -259,7 +259,8 @@ async def _queue_analyst_question(update: Update, question: str, source: str) ->
 
 HELP_TEXT = (
     "Research pipeline bot.\n\n"
-    "Default: drop a PDF and I'll queue it for the research worker to classify, store, and index.\n\n"
+    "Default: drop a PDF and I'll queue it for the research worker to classify, store, and index.\n"
+    "To paste a text snippet: start the message with 'ingest this [note] [by AUTHOR]', then paste the text.\n\n"
     "Manual overrides:\n"
     "/research TICKER - force as sellside research\n"
     "/macro AUTHOR    - force as macro research\n"
@@ -813,6 +814,63 @@ async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text("Unknown command. /help for the list.")
 
 
+async def _handle_ingest_snippet(update: Update, raw: str) -> None:
+    """Save a pasted text block as a .txt file and queue it for auto-classification."""
+    import re
+    from scripts.kb import file_hash, slugify
+    from scripts.jobs import enqueue_job
+
+    # First line is the trigger ("ingest this note by SigmaIntell"); body is the rest.
+    parts = raw.split("\n", 1)
+    trigger_line = parts[0].strip()
+    body = parts[1].strip() if len(parts) > 1 else ""
+
+    if len(body) < 20:
+        await update.message.reply_text(
+            "No content found after the trigger line.\n\n"
+            "Format:\n"
+            "  ingest this note by AUTHOR\n\n"
+            "  {paste text here}\n\n"
+            "Or without an author:\n"
+            "  ingest this\n\n"
+            "  {paste text here}"
+        )
+        return
+
+    # Extract optional author hint: "by {Author}" at end of trigger line.
+    author_hint = None
+    m = re.search(r"\bby\s+(.+)$", trigger_line, re.IGNORECASE)
+    if m:
+        author_hint = m.group(1).strip().strip("\"'")
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    if author_hint:
+        safe_author = slugify(author_hint, max_len=60)
+        fname = f"{safe_author}_{stamp}.txt"
+    else:
+        fname = f"snippet_{stamp}.txt"
+
+    TELEGRAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = TELEGRAM_UPLOAD_DIR / fname
+    dest.write_text(body, encoding="utf-8")
+
+    fhash = file_hash(dest)
+    job_id = enqueue_job(
+        "ingest_file",
+        {"path": str(dest), "notify": True},
+        dedupe_key=f"ingest_file:{fhash}",
+    )
+    log.info("snippet ingestion queued: file=%s job=%s", fname, job_id)
+    try:
+        await update.message.reply_text(
+            f"Saved as {fname} ({len(body):,} chars).\n"
+            f"Queued for classification + storage. Job #{job_id}.\n"
+            f"The worker will triage, store, and send the summary here."
+        )
+    except Exception as e:
+        log.warning("snippet ack to user failed (job %s still queued): %s", job_id, e)
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return await _deny(update)
@@ -820,6 +878,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     lower = text.lower()
     if "tech brief" in lower or "headline" in lower:
         await _send_long_html(update, _tech_brief_status_text())
+        return
+    if lower.startswith("ingest this"):
+        await _handle_ingest_snippet(update, text)
         return
     await _queue_analyst_question(update, text, source="plain-text")
 
