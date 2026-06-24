@@ -175,6 +175,24 @@ Triage MUST pick themes from `KNOWN_THEMES`. New themes are NEVER auto-created �
 
 **Cutover rule (single-writer):** rsync → stop desktop processes → start Mac mini processes. Never both at once or state files diverge.
 
+## Features added 2026-06-23/24
+
+### Chinese company name recognition (`config/companies.json` + `scripts/kb.py`)
+
+34 companies now have a `name_zh` field (30 TW, 4 KR). `extract_entities()` checks `name_zh in raw_haystack` (not lowercased — Chinese has no case) as a third match condition after ticker symbol and English name. Fixes "structured KB is empty" false negatives on all-Chinese headlines (e.g. "聯發科" → 2454 TT).
+
+### Text snippet ingestion (`bot.py`)
+
+Start any Telegram message with `ingest this [note] [by AUTHOR]`, then paste the body. Bot saves as `{author}_{timestamp}.txt` in `data/_telegram_uploads/`, queues an `ingest_file` job. Triage sees the filename (author hint) + text body and classifies normally. Identical pipeline to PDF drops.
+
+### Inbox scan digest (`scripts/folder_scan.py`, `scripts/jobs.py`, `bot.py`)
+
+After `folder_scan` with `notify=True` queues new files:
+- Saves `data/_latest_inbox_scan.json` with `{scan_id, total, items: []}`.
+- Each `ingest_file` job (when `scan_id` is in payload) appends `{title, author, stored_path, json_path, triage}` to the digest; last job to complete sends the Telegram digest.
+- Digest format mirrors email sweep: rank, bold title, author, `/inbox_N` command.
+- `/inbox_N` → `analyse_inbox_file` job → reloads stored JSON + re-runs `research_readthrough` (full Opus synthesis).
+
 ## Known Issues / Incomplete
 
 1. **`scripts/classifier.py` now runs Haiku 4.5** (`claude-haiku-4-5-20251001`) for IR-doc routing — ~3× cheaper than Sonnet 4 with no quality loss for this constrained task. Prompt caching doesn't help (static prefix ~180 tokens, below the 1024 cacheable floor; per-doc text is unique), so the model swap is the cost lever. **`scripts/extractor.py` still uses `claude-sonnet-4-20250514`** — left unchanged; that path is lower-volume and the model is adequate for its routing.
@@ -184,7 +202,7 @@ Triage MUST pick themes from `KNOWN_THEMES`. New themes are NEVER auto-created �
 5. **ForexFactory** only provides current week via API. Future weeks scraped via Playwright (cached 12hrs).
 6. **Some TW company IR sites** return 0 files (Acer, Largan, Innolux block automated scraping). MOPS covers their filings.
 7. **Inline-keyboard confirmation for held files** — v1 sends text-only "held for review" Telegram message. v2 should send `[Confirm] [Reclassify] [Drop]` inline buttons.
-8. **Headlines + email sweep + heartbeat/agenda.md** — scoped but not built. Belongs in next session.
+8. **Inbox scan digest failure mode** — if an `ingest_file` job fails (after 3 attempts), the digest `count` never reaches `total` and the digest is never sent. Rare in practice; V2 should also trigger digest on failure.
 
 ## Environment
 
@@ -197,7 +215,15 @@ Triage MUST pick themes from `KNOWN_THEMES`. New themes are NEVER auto-created �
 ## Quick reference
 
 ```powershell
-# Bot
+# After reboot: restart all four services (no auto-start on Windows)
+$py = "C:\Users\Owner\AppData\Local\Programs\Python\Python312\python.exe"
+$root = "C:\Users\Owner\research-pipeline"
+Start-Process -FilePath $py -ArgumentList "bot.py" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\bot.out.log" -RedirectStandardError "$root\bot.err.log"
+Start-Process -FilePath $py -ArgumentList "main.py worker --exclude-kinds analyst_question" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\worker.out.log" -RedirectStandardError "$root\worker.err.log"
+Start-Process -FilePath $py -ArgumentList "main.py worker --kinds analyst_question" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\worker_interactive.out.log" -RedirectStandardError "$root\worker_interactive.err.log"
+Start-Process -FilePath $py -ArgumentList "main.py heartbeat" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\heartbeat.out.log" -RedirectStandardError "$root\heartbeat.err.log"
+
+# Bot (foreground, for debugging)
 cd ~/research-pipeline; python bot.py
 
 # Sweeper (default watches research-inbox on this desktop)
