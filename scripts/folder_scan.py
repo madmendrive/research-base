@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from datetime import datetime
 from pathlib import Path
 
 from scripts.jobs import enqueue_job, job_for_dedupe_key
-from scripts.notify import telegram_send
+from scripts.notify import telegram_send, telegram_send_markdownish_html
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+LATEST_SCAN_PATH = DATA_DIR / "_latest_inbox_scan.json"
 
 IGNORE_PATTERNS = (
     ".syncthing.",
@@ -33,6 +39,86 @@ def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# Scan digest state — one JSON file tracks the latest folder-scan run
+# ---------------------------------------------------------------------------
+
+def _save_scan_session(scan_id: str, total: int) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    record = {
+        "scan_id": scan_id,
+        "total": total,
+        "items": [],
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    LATEST_SCAN_PATH.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_scan_item(scan_id: str, item: dict) -> tuple[int, int]:
+    """Append a completed ingest result to the latest scan digest.
+
+    Returns (current_item_count, total_expected).
+    Called by the ingest_file job handler after each file finishes.
+    Safe for the serial heavy worker (no concurrent writers).
+    """
+    if not LATEST_SCAN_PATH.exists():
+        return 0, 0
+    try:
+        record = json.loads(LATEST_SCAN_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0, 0
+    if record.get("scan_id") != scan_id:
+        return 0, 0
+    items = record.get("items") or []
+    item = dict(item)
+    item["rank"] = len(items) + 1
+    items.append(item)
+    record["items"] = items
+    LATEST_SCAN_PATH.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return len(items), int(record.get("total", 0))
+
+
+def get_scan_item_by_rank(rank: int) -> dict | None:
+    """Look up one item from the latest inbox scan digest by rank (1-indexed)."""
+    if not LATEST_SCAN_PATH.exists():
+        return None
+    try:
+        record = json.loads(LATEST_SCAN_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    for item in record.get("items", []):
+        try:
+            if int(item.get("rank", 0)) == int(rank):
+                return item
+        except Exception:
+            continue
+    return None
+
+
+def send_scan_digest(items: list[dict]) -> None:
+    """Send the inbox-scan digest to Telegram.
+
+    Format mirrors the email-sweep digest: rank, bold title, author, /inbox_N command.
+    """
+    if not items:
+        return
+    lines = [f"<b>Inbox scan — {len(items)} new file(s)</b>", ""]
+    for it in items:
+        title = (it.get("title") or "(untitled)").strip()
+        author = (it.get("author") or "").strip()
+        rank = it.get("rank", "?")
+        lines.append(f"{rank}. <b>{title}</b>")
+        if author:
+            lines.append(f"   {author}")
+        lines.append(f"   analyse: /inbox_{rank}")
+        lines.append("")
+    telegram_send_markdownish_html("\n".join(lines).strip())
+
+
+# ---------------------------------------------------------------------------
+# Folder scanner
+# ---------------------------------------------------------------------------
+
 def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
                 analyse: bool = False) -> dict:
     base = Path(folder).expanduser().resolve()
@@ -43,6 +129,11 @@ def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
     queued = 0
     already_seen = 0
     skipped = 0
+
+    # Generate a scan_id up front so every ingest_file job in this run
+    # shares it; the last one to complete will fire the digest.
+    scan_id = datetime.now().strftime("%Y%m%d_%H%M%S") if notify else None
+
     for pdf in sorted(globber("*.pdf")):
         if not pdf.is_file() or _is_temp_file(pdf):
             skipped += 1
@@ -53,13 +144,17 @@ def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
         if job_for_dedupe_key(dedupe_key):
             already_seen += 1
             continue
+        job_payload: dict = {"path": str(pdf), "notify": analyse}
+        if scan_id:
+            job_payload["scan_id"] = scan_id
         job_id = enqueue_job(
             "ingest_file",
-            {"path": str(pdf), "notify": analyse},
+            job_payload,
             dedupe_key=dedupe_key,
         )
         if job_id:
             queued += 1
+
     stats = {
         "folder": str(base),
         "scanned": scanned,
@@ -68,8 +163,15 @@ def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
         "skipped": skipped,
     }
     if notify:
-        telegram_send(
-            f"Folder scan: {scanned} PDF(s) scanned from {base}; "
-            f"{queued} new queued, {already_seen} already seen, {skipped} skipped."
-        )
+        if queued > 0:
+            _save_scan_session(scan_id, queued)
+            telegram_send(
+                f"Inbox scan: {scanned} scanned, {queued} new file(s) queued. "
+                f"Digest will follow when ingestion completes."
+            )
+        else:
+            telegram_send(
+                f"Inbox scan: {scanned} scanned, nothing new "
+                f"({already_seen} already seen, {skipped} skipped)."
+            )
     return stats

@@ -263,7 +263,8 @@ HELP_TEXT = (
     "/note TARGET TEXT - store your own note\n"
     "/download TICKER  - queue IR/regulatory download\n"
     "/pending          - show held low-confidence files\n"
-    "/headline_#       - analyse one item from the latest Tech Brief\n\n"
+    "/headline_#       - analyse one item from the latest Tech Brief\n"
+    "/inbox_#          - analyse one item from the latest inbox scan digest\n\n"
     "Research memory:\n"
     "/memory SUBJECT   - structured views/estimates snapshot\n"
     "/mapstatus        - structured memory coverage\n\n"
@@ -604,6 +605,38 @@ async def _queue_latest_headline_by_rank(update: Update, rank: int) -> bool:
     return True
 
 
+async def _queue_latest_scan_item_by_rank(update: Update, rank: int) -> bool:
+    from scripts.jobs import enqueue_job
+    from scripts.folder_scan import get_scan_item_by_rank
+
+    item = get_scan_item_by_rank(rank)
+    if not item:
+        await update.message.reply_text(f"Could not find item #{rank} in the latest inbox scan.")
+        return True
+    stored_path = item.get("stored_path")
+    if not stored_path:
+        await update.message.reply_text("That item is missing its stored path.")
+        return True
+    job_id = enqueue_job(
+        "analyse_inbox_file",
+        {
+            "stored_path": stored_path,
+            "json_path": item.get("json_path"),
+            "triage": item.get("triage") or {},
+            "notify": True,
+        },
+        dedupe_key=f"analyse_inbox_file:{stored_path}:{datetime.now().strftime('%Y%m%d%H%M%S')}",
+    )
+    try:
+        await update.message.reply_text(
+            f"Queued analysis for inbox item #{rank}: {item.get('title', '')[:160]}\n"
+            f"Job #{job_id}."
+        )
+    except Exception as e:
+        log.warning("inbox item ack to user failed (job %s still queued): %s", job_id, e)
+    return True
+
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return await _deny(update)
@@ -766,6 +799,11 @@ async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         rank_text = command.split("_", 1)[1].split("@", 1)[0]
         if rank_text.isdigit():
             await _queue_latest_headline_by_rank(update, int(rank_text))
+            return
+    if command.startswith("/inbox_"):
+        rank_text = command.split("_", 1)[1].split("@", 1)[0]
+        if rank_text.isdigit():
+            await _queue_latest_scan_item_by_rank(update, int(rank_text))
             return
     await update.message.reply_text("Unknown command. /help for the list.")
 

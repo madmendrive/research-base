@@ -237,7 +237,28 @@ def _process_job(job: dict) -> str:
             "stored_path": committed.get("stored_path"),
             "structured_memory": committed.get("json_path"),
         }
-        if payload.get("notify", True):
+        scan_id = payload.get("scan_id")
+        if scan_id:
+            # Collect into the folder-scan digest; the last file triggers the send.
+            from scripts.folder_scan import append_scan_item, send_scan_digest, LATEST_SCAN_PATH
+
+            _extraction = result.get("extraction_json") or {}
+            _metadata = _extraction.get("metadata") or {}
+            _triage = result.get("triage") or {}
+            _title = _metadata.get("title") or _triage.get("title") or path.stem
+            _author = _metadata.get("author") or _triage.get("author") or ""
+            _item = {
+                "title": _title,
+                "author": _author,
+                "stored_path": committed.get("stored_path"),
+                "json_path": committed.get("json_path"),
+                "triage": _triage,
+            }
+            count, total = append_scan_item(scan_id, _item)
+            if total > 0 and count >= total:
+                _record = json.loads(LATEST_SCAN_PATH.read_text(encoding="utf-8"))
+                send_scan_digest(_record.get("items") or [])
+        elif payload.get("notify", True):
             telegram_send_markdownish_html(research_readthrough(result, path.name))
         return f"ingested {path} -> {committed.get('stored_path')}"
 
@@ -365,6 +386,43 @@ def _process_job(job: dict) -> str:
 
         result = analyse_headline(payload["key"], notify=bool(payload.get("notify", True)))
         return json.dumps(result)
+
+    if kind == "analyse_inbox_file":
+        from scripts.analyst import research_readthrough
+        from scripts.classifier import extract_text
+
+        stored_path = Path(payload["stored_path"])
+        json_path_s = payload.get("json_path")
+        extraction = {}
+        if json_path_s and Path(json_path_s).exists():
+            try:
+                extraction = json.loads(Path(json_path_s).read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        triage = payload.get("triage") or {}
+        document_text, _ = extract_text(
+            stored_path,
+            max_pages=int(payload.get("analysis_max_pages", 80) or 80),
+            max_chars=int(payload.get("analysis_max_chars", 65000) or 65000),
+        )
+        result = {
+            "triage": triage,
+            "primary_report": (
+                extraction.get("analysis_report")
+                or extraction.get("detailed_summary")
+                or json.dumps(extraction, ensure_ascii=False)[:6500]
+            ),
+            "extraction_json": extraction,
+            "document_excerpt": document_text or "",
+            "document_text_error": None,
+            "secondaries": [],
+            "stored_path": str(stored_path),
+            "structured_memory": json_path_s,
+        }
+        msg = research_readthrough(result, stored_path.name)
+        if payload.get("notify", True):
+            telegram_send_markdownish_html(msg)
+        return f"analysed inbox file {stored_path.name}"
 
     if kind == "confirm_pending":
         from scripts.ops import confirm_pending
