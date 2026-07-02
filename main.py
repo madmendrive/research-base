@@ -757,6 +757,13 @@ def kb_vec_build_cmd():
     click.echo(json.dumps(build_vector_index(), indent=2))
 
 
+@cli.command("kb-fts-optimize")
+def kb_fts_optimize_cmd():
+    """Merge fragmented FTS index segments (one-time heavy op; run when quiet)."""
+    from scripts.kb import fts_optimize
+    click.echo(json.dumps(fts_optimize(), indent=2))
+
+
 @cli.command("kb-drop-json")
 @click.option("--vacuum", is_flag=True, help="Run VACUUM after the drop to reclaim space.")
 @click.confirmation_option(prompt="Drop the legacy embedding_json column? "
