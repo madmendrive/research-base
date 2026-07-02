@@ -454,7 +454,9 @@ class ResearchMemoryTests(unittest.TestCase):
         self.assertEqual(canonicalize_ticker("005930.KS"), "005930 KS")
         self.assertEqual(canonicalize_ticker("3037.TW"), "3037 TT")
         self.assertEqual(canonicalize_ticker("285A.T"), "285A JT")
-        self.assertEqual(canonicalize_ticker("6806.T"), "6806 JP")
+        # JP convention is Bloomberg "XXXX JT" (see CLAUDE.md tier conventions);
+        # this line previously expected "6806 JP" and always failed.
+        self.assertEqual(canonicalize_ticker("6806.T"), "6806 JT")
 
     def test_research_memory_canonicalizes_source_subject(self):
         payload = {
