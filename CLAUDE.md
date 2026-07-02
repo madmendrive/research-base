@@ -202,8 +202,33 @@ After `folder_scan` with `notify=True` queues new files:
 5. **Some TW company IR sites** return 0 files (Acer, Largan, Innolux block automated scraping). MOPS covers their filings.
 6. **Inline-keyboard confirmation for held files** — v1 sends text-only "held for review" Telegram message. v2 should send `[Confirm] [Reclassify] [Drop]` inline buttons.
 7. **Standalone inbox digest failure mode** — non-combined folder-scan digests still require every `ingest_file` job to succeed before sending (combined-mode digests are covered by the failsafe + terminal-failure notices as of 2026-07-02).
-8. **Vector recall ceiling** — vector scoring in `kb.search` only sees the FTS candidate pool + 2,000 newest chunks. The real fix is a float32-BLOB embedding migration (also shrinks the 25.5 GB DB by ~14 GB and cuts the 3-6s search latency); deferred pending an explicit go-ahead because it rewrites the whole DB. CJK FTS tokenization (`name_zh` queries) is a related gap.
+8. **CJK FTS tokenization** — `_fts_query` extracts only `[A-Za-z0-9_]+` tokens and the FTS table uses unicode61, so all-Chinese queries get zero keyword hits (the full-corpus vector scan now covers them semantically, but `name_zh` keyword search remains a gap).
 9. **Dual ingest pipelines diverge** — the fast job pipeline (`parallel_ingest`) and the classic pipeline (sweeper/bulk) keep separate SHA-state namespaces, and the fast path skips `_routing_log.jsonl`, held-for-review notices, and `summary.json` rebuilds. Don't run the sweeper alongside job-based folder scans on the same inbox.
+
+## Vector index migration 2026-07-03 (branches worktree-vec-migration + worktree-json-drop)
+
+Embeddings moved from JSON text to float32 BLOBs (`chunks.embedding`), the
+legacy `embedding_json` column was dropped, and the DB was VACUUMed:
+**42 GB (dual-format peak) -> 15 GB**. A pre-drop backup lives at
+`data/_kb/kb_backup_predrop.sqlite` (42 GB, integrity-checked; delete it once
+the new stack has proven itself for a few days).
+
+- **Sidecar vector index** (`data/_kb/vec_index/`): an L2-normalized
+  memory-mapped float32 matrix of all ~952k chunk embeddings, in versioned
+  dirs behind an atomically-replaced `current.json` pointer (Windows-lock
+  safe). `kb.search` runs a **full-corpus numpy scan** for unfiltered
+  queries — every embedded chunk is semantically reachable (the old
+  candidate-pool recall ceiling is gone). Chunks newer than the sidecar are
+  scored live; source-filtered queries use the bounded pool path.
+- **Nightly upkeep**: the 03:00 `kb_reindex` job runs `embed_migrate()`
+  (no-ops now the column is dropped) and `build_vector_index()` so the
+  sidecar always includes the previous day's ingests.
+- **Commands**: `kb-vec-build` (manual sidecar rebuild), `kb-embed-backfill`
+  (embed missing chunks; migrates legacy JSON first if a legacy DB is ever
+  attached), `kb-embed-migrate` (legacy conversion; no-op here),
+  `kb-drop-json --vacuum` (already executed 2026-07-03).
+- Fresh DBs are created blob-only; all reads are BLOB-first with a guarded
+  legacy-JSON fallback, so the code also works against pre-migration DBs.
 
 ## Audit fixes 2026-07-02 (branch worktree-audit-fixes)
 
@@ -302,10 +327,12 @@ cd ~/research-pipeline; python main.py kb-embed-backfill
 ## KB index (full corpus)
 
 The KB covers the entire data tree — research notes AND all IR/filings/MOPS
-PDFs (~36.6k documents, ~952k chunks as of 2026-07-02, OpenAI
-text-embedding-3-small). The original backfill ran 2026-06-11; a second
-embedding backfill (`kb-embed-backfill`) ran 2026-07-02 to repair the 461k
-chunks left unembedded by the June 14-16 reindex wave. Reindex cost control:
+PDFs (~36.6k documents, ~952k chunks, all embedded, OpenAI
+text-embedding-3-small stored as float32 BLOBs; DB ~15 GB post-migration).
+The original backfill ran 2026-06-11; a second embedding backfill repaired
+the 461k chunks left unembedded by the June 14-16 reindex wave (2026-07-02),
+and the BLOB/sidecar migration completed 2026-07-03 (see the Vector index
+migration section). Reindex cost control:
 - `index_file` skips unchanged files via a mtime+size stamp in
   `documents.metadata_json` — no text extraction for unchanged files.
 - Failed/empty extractions (corrupt or image-only PDFs, ~130 files) are
