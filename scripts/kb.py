@@ -1186,19 +1186,29 @@ def search(
     try:
         where_sql, params = _source_where(sources)
         fts = _fts_query(query)
+        fts_limit = max(limit * 3, limit)
+        # The FTS ranking MUST happen inside the subquery, before any join.
+        # Joining chunks/documents in the same query defeats FTS5's rank-sort
+        # optimization: SQLite probes the chunks b-tree for EVERY matching row
+        # (hundreds of thousands for common tokens) before LIMIT — measured
+        # ~57s cold vs 0.2s for this co-routine form. When source-filtered,
+        # the inner limit is inflated because filtering happens after ranking.
+        inner_limit = fts_limit if not where_sql else max(fts_limit * 20, 400)
         rows = conn.execute(
             f"""
             SELECT c.id AS chunk_id, c.text, d.id AS document_id,
                    d.title, d.source_type, d.source_path, d.url, d.entities_json,
-                   d.metadata_json, bm25(chunks_fts) AS rank
-            FROM chunks_fts
-            JOIN chunks c ON c.id = chunks_fts.chunk_id
+                   d.metadata_json, f.rank
+            FROM (SELECT chunk_id, bm25(chunks_fts) AS rank
+                  FROM chunks_fts WHERE chunks_fts MATCH ?
+                  ORDER BY rank LIMIT ?) f
+            JOIN chunks c ON c.id = f.chunk_id
             JOIN documents d ON d.id = c.document_id
-            WHERE chunks_fts MATCH ? {where_sql}
-            ORDER BY rank
+            WHERE 1=1 {where_sql}
+            ORDER BY f.rank
             LIMIT ?
             """,
-            [fts, *params, max(limit * 3, limit)],
+            [fts, inner_limit, *params, fts_limit],
         ).fetchall()
 
         # Reciprocal-rank fusion. SQLite bm25() returns NEGATIVE values (more
@@ -1313,17 +1323,21 @@ def _vector_pool_scan(conn, q_vec, fts: str, where_sql: str, params: list,
                       top_n: int) -> list:
     """Legacy bounded pool (FTS candidates + newest chunks), used for
     source-filtered searches and as the fallback when no sidecar exists."""
+    # Rank inside the subquery before joining (see the main search query for
+    # why); inflated inner limit compensates for post-rank source filtering.
     pool_ids: list[int] = [int(r["chunk_id"]) for r in conn.execute(
         f"""
-        SELECT chunks_fts.chunk_id AS chunk_id
-        FROM chunks_fts
-        JOIN chunks c ON c.id = chunks_fts.chunk_id
+        SELECT f.chunk_id AS chunk_id
+        FROM (SELECT chunk_id, bm25(chunks_fts) AS rank
+              FROM chunks_fts WHERE chunks_fts MATCH ?
+              ORDER BY rank LIMIT ?) f
+        JOIN chunks c ON c.id = f.chunk_id
         JOIN documents d ON d.id = c.document_id
-        WHERE chunks_fts MATCH ? {where_sql}
-        ORDER BY bm25(chunks_fts)
+        WHERE 1=1 {where_sql}
+        ORDER BY f.rank
         LIMIT ?
         """,
-        [fts, *params, VECTOR_POOL_FTS_CANDIDATES],
+        [fts, VECTOR_POOL_FTS_CANDIDATES * 4, *params, VECTOR_POOL_FTS_CANDIDATES],
     ).fetchall()]
     pool_ids += [int(r["chunk_id"]) for r in conn.execute(
         f"""
