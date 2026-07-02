@@ -259,7 +259,7 @@ def store_research(ticker, file_path):
 
     # d. Save JSON
     json_path = notes_dir / f"{dest_name}.json"
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(note_data, f, indent=2, ensure_ascii=False)
         f.write("\n")
     click.echo(f"Saved analysis: {json_path.relative_to(PROJECT_ROOT)}")
@@ -419,7 +419,7 @@ def rebuild_summary(ticker):
     notes = []
     for nf in note_files:
         try:
-            with open(nf) as f:
+            with open(nf, encoding="utf-8") as f:
                 notes.append((nf.name, json.load(f)))
         except (json.JSONDecodeError, Exception) as e:
             click.echo(f"  Warning: skipping {nf.name}: {e}")
@@ -820,7 +820,7 @@ def analyse_research(ticker, file_path=None, headline=None):
     # Load existing summary
     existing_summary = None
     if summary_path.exists():
-        with open(summary_path) as f:
+        with open(summary_path, encoding="utf-8") as f:
             existing_summary = json.load(f)
 
     client = Anthropic(max_retries=3, timeout=600.0)
@@ -910,7 +910,7 @@ def analyse_research(ticker, file_path=None, headline=None):
 
         # Save extraction JSON
         json_path = notes_dir / f"{dest_name}.json"
-        with open(json_path, "w") as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(new_research, f, indent=2, ensure_ascii=False)
             f.write("\n")
         click.echo(f"Saved extraction: {json_path.relative_to(PROJECT_ROOT)}")

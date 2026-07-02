@@ -457,7 +457,7 @@ def _find_ir_filings(ticker):
     if not classifications_path.exists():
         return []
 
-    with open(classifications_path) as f:
+    with open(classifications_path, encoding="utf-8") as f:
         classifications = json.load(f)
 
     extractable_types = {"regulatory_filing", "annual_report", "earnings_release",
@@ -644,7 +644,7 @@ def extract_financials(ticker, re_extract=False):
     if re_extract or not output_path.exists():
         existing = {"extractions": [], "extracted_at": None}
     else:
-        with open(output_path) as f:
+        with open(output_path, encoding="utf-8") as f:
             existing = json.load(f)
 
     already_processed = set()
