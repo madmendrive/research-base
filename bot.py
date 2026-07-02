@@ -88,7 +88,9 @@ async def _deny(update: Update) -> None:
     log.warning("denied: user_id=%s username=%s",
                 update.effective_user.id if update.effective_user else None,
                 update.effective_user.username if update.effective_user else None)
-    await update.message.reply_text("Not authorised.")
+    # effective_message covers edited_message updates too (message is None there).
+    if update.effective_message:
+        await update.effective_message.reply_text("Not authorised.")
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +240,7 @@ async def _send_long_html(update: Update, text: str) -> None:
     from scripts.notify import telegram_html
 
     for piece in _chunk(text):
-        await update.message.reply_text(telegram_html(piece), parse_mode="HTML")
+        await update.effective_message.reply_text(telegram_html(piece), parse_mode="HTML")
 
 
 async def _run_blocking(fn, *args, timeout_seconds: float | None = None, **kwargs):
@@ -276,8 +278,8 @@ async def _queue_analyst_question(update: Update, question: str, source: str) ->
     log.info("%s analyst question queued user_id=%s chars=%s job=%s",
              source, update.effective_user.id, len(question), job_id)
     try:
-        await update.message.chat.send_action(ChatAction.TYPING)
-        await update.message.reply_text(
+        await update.effective_message.chat.send_action(ChatAction.TYPING)
+        await update.effective_message.reply_text(
             "Queued for the analyst. I am checking the local KB and structured research "
             "memory and will send the full answer here when the synthesis finishes — "
             "detailed questions can take several minutes."
@@ -714,6 +716,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not _is_allowed(update):
         return await _deny(update)
 
+    if update.message is None:
+        return  # edited caption on an already-processed upload — nothing to do
     doc = update.message.document
     if not doc:
         return
@@ -866,7 +870,7 @@ async def _process_with_override(update: Update, override: dict, pdf_path: Path)
 async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return await _deny(update)
-    text = (update.message.text or "").strip() if update.message else ""
+    text = (update.effective_message.text or "").strip() if update.effective_message else ""
     command = text.split()[0] if text else ""
     if command.startswith("/headline_"):
         rank_text = command.split("_", 1)[1].split("@", 1)[0]
@@ -946,7 +950,12 @@ async def _handle_ingest_snippet(update: Update, raw: str) -> None:
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_allowed(update):
         return await _deny(update)
-    text = (update.message.text or "").strip()
+    # Edited messages (typo fixes) arrive with update.message=None; treat the
+    # corrected text as a fresh question instead of crashing on .text.
+    msg = update.effective_message
+    if msg is None:
+        return
+    text = (msg.text or "").strip()
     lower = text.lower()
     if _is_tech_brief_status_query(text):
         await _send_long_html(update, _tech_brief_status_text())
