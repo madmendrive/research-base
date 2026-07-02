@@ -757,6 +757,16 @@ def kb_vec_build_cmd():
     click.echo(json.dumps(build_vector_index(), indent=2))
 
 
+@cli.command("kb-drop-json")
+@click.option("--vacuum", is_flag=True, help="Run VACUUM after the drop to reclaim space.")
+@click.confirmation_option(prompt="Drop the legacy embedding_json column? "
+                                  "Stop all services and take a backup first.")
+def kb_drop_json_cmd(vacuum):
+    """MAINTENANCE: drop the legacy embedding_json column (refuses if unconverted rows remain)."""
+    from scripts.kb import drop_embedding_json
+    click.echo(json.dumps(drop_embedding_json(vacuum=vacuum), indent=2))
+
+
 @cli.command("kb-reindex")
 @click.option("--source", default="all", show_default=True,
               type=click.Choice(["all", "research", "ir", "filings", "claude", "email", "headlines", "company", "skills", "notes"],

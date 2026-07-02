@@ -83,16 +83,24 @@ class TestBlobRoundtrip(unittest.TestCase):
 
 
 class TestWriteAndMigrate(VecCase):
-    def test_index_text_writes_blob_not_json(self):
+    def _add_legacy_column(self):
+        """Fresh DBs no longer carry embedding_json; simulate a legacy DB."""
+        conn = kb.connect()
+        conn.execute("ALTER TABLE chunks ADD COLUMN embedding_json TEXT")
+        conn.commit()
+        conn.close()
+
+    def test_index_text_writes_blob(self):
         self._index("a", "some keyword match text")
         conn = kb.connect()
-        row = conn.execute(
-            "SELECT embedding, embedding_json FROM chunks").fetchone()
+        row = conn.execute("SELECT embedding FROM chunks").fetchone()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(chunks)").fetchall()}
         conn.close()
         self.assertIsNotNone(row["embedding"])
-        self.assertIsNone(row["embedding_json"])
+        self.assertNotIn("embedding_json", cols)  # fresh schema is blob-only
 
     def test_embed_migrate_converts_legacy_json_rows(self):
+        self._add_legacy_column()
         self._index("a", "keyword match body", embed=False)
         conn = kb.connect()
         conn.execute("UPDATE chunks SET embedding_json = ?", (json.dumps([0.0, 1.0, 0.0]),))
@@ -109,11 +117,53 @@ class TestWriteAndMigrate(VecCase):
         np.testing.assert_allclose(kb.blob_to_vec(row["embedding"]), [0.0, 1.0, 0.0])
         self.assertIsNotNone(row["embedding_json"])  # kept until the drop step
 
-    def test_unembedded_counts_use_combined_check(self):
-        self._index("a", "keyword match body")   # blob only
+    def test_embed_migrate_noop_without_legacy_column(self):
+        self._index("a", "keyword match body")
+        stats = kb.embed_migrate()
+        self.assertEqual(stats["converted"], 0)
+        self.assertFalse(stats["column_present"])
+
+    def test_unembedded_counts(self):
+        self._index("a", "keyword match body")   # blob
         self._index("b", "no embedding here", embed=False)
         stats = kb.embed_backfill(dry_run=True)
         self.assertEqual(stats["unembedded"], 1)  # only the embed=False row
+
+    def test_backfill_migrates_legacy_json_instead_of_reembedding(self):
+        # A json-only row must be converted for free, never re-embedded.
+        self._add_legacy_column()
+        self._index("a", "keyword match body", embed=False)
+        conn = kb.connect()
+        conn.execute("UPDATE chunks SET embedding_json = ?", (json.dumps([0.0, 1.0, 0.0]),))
+        conn.commit()
+        conn.close()
+        stats = kb.embed_backfill(dry_run=True)  # dry run still migrates first
+        self.assertEqual(stats["unembedded"], 0)
+        conn = kb.connect()
+        row = conn.execute("SELECT embedding FROM chunks").fetchone()
+        conn.close()
+        self.assertIsNotNone(row["embedding"])
+
+    def test_drop_refuses_with_unconverted_rows_then_drops_clean(self):
+        self._add_legacy_column()
+        self._index("a", "keyword match body", embed=False)
+        conn = kb.connect()
+        conn.execute("UPDATE chunks SET embedding_json = ?", (json.dumps([1.0, 0.0, 0.0]),))
+        conn.commit()
+        conn.close()
+        refused = kb.drop_embedding_json()
+        self.assertFalse(refused["dropped"])
+        self.assertIn("unconverted", refused["reason"])
+        kb.embed_migrate()
+        dropped = kb.drop_embedding_json()
+        self.assertTrue(dropped["dropped"])
+        conn = kb.connect()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+        conn.close()
+        self.assertNotIn("embedding_json", cols)
+        # Second call no-ops; search still works post-drop.
+        self.assertFalse(kb.drop_embedding_json()["dropped"])
+        self.assertEqual(kb.search("keyword match", use_vector=False)[0]["title"], "a")
 
 
 class TestSidecarSearch(VecCase):

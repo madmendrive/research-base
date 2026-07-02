@@ -117,7 +117,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             text TEXT NOT NULL,
             token_estimate INTEGER NOT NULL DEFAULT 0,
             embedding_model TEXT,
-            embedding_json TEXT,
+            embedding BLOB,
             created_at TEXT NOT NULL,
             UNIQUE(document_id, chunk_index)
         );
@@ -136,14 +136,18 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
         """
     )
-    # Additive migration: float32 BLOB embeddings replace JSON text (~31KB ->
-    # ~6KB per vector; ~14GB smaller DB) and make full-corpus numpy scans
-    # possible. embedding_json stays until the migration is verified, then a
-    # separate maintenance step drops it.
+    # Additive migration for DBs created before the float32-BLOB era. The
+    # legacy embedding_json column (when still present) is handled lazily by
+    # embed_migrate() and dropped by drop_embedding_json().
     cols = {r[1] for r in conn.execute("PRAGMA table_info(chunks)").fetchall()}
     if "embedding" not in cols:
         conn.execute("ALTER TABLE chunks ADD COLUMN embedding BLOB")
     conn.commit()
+
+
+def _has_json_column(conn: sqlite3.Connection) -> bool:
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+    return "embedding_json" in cols
 
 
 def file_hash(path: Path, chunk_size: int = 1 << 20) -> str:
@@ -399,16 +403,19 @@ def blob_to_vec(blob: bytes):
 
 
 def _row_embedding(row):
-    """Embedding from a chunks row: BLOB preferred, JSON fallback (transition)."""
+    """Embedding from a chunks row: BLOB preferred; legacy-JSON fallback for
+    rows/DBs that still carry the (droppable) embedding_json column."""
     try:
         blob = row["embedding"]
     except (IndexError, KeyError):
         blob = None
     if blob is not None:
         return blob_to_vec(blob)
-    if row["embedding_json"]:
-        return json.loads(row["embedding_json"])
-    return None
+    try:
+        raw = row["embedding_json"]
+    except (IndexError, KeyError):
+        raw = None
+    return json.loads(raw) if raw else None
 
 
 def _vector_dot(a: list[float], b: list[float]) -> float:
@@ -816,9 +823,7 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
         # 2026-06-14..16 wave (458k chunks indexed with no embeddings) is
         # visible within a day instead of never.
         try:
-            stats["unembedded_chunks"] = conn.execute(
-                "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
-            ).fetchone()[0]
+            stats["unembedded_chunks"] = _count_unembedded(conn)
         except sqlite3.Error:
             pass
         conn.close()
@@ -826,20 +831,32 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
     return stats
 
 
-def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> dict:
-    """Embed chunks that were stored without embeddings (embedding_json IS NULL).
+def _count_unembedded(conn: sqlite3.Connection) -> int:
+    """Chunks with no embedding in either format (legacy column optional)."""
+    if _has_json_column(conn):
+        return conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
+        ).fetchone()[0]
+    return conn.execute(
+        "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL"
+    ).fetchone()[0]
 
-    Resumable by construction: each batch is committed before the next is
-    fetched, and the WHERE clause only ever sees still-unembedded chunks. On an
-    API failure it stops cleanly (re-run later) rather than looping. Clears the
-    documents' embedding_error markers once their chunks are repaired.
+
+def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> dict:
+    """Embed chunks that were stored without embeddings.
+
+    Runs a JSON->BLOB migrate catch-up first, so legacy-JSON rows are never
+    re-embedded (a free conversion beats a paid API call). Resumable by
+    construction: each batch is committed before the next is fetched, and the
+    WHERE clause only ever sees still-unembedded chunks. On an API failure it
+    stops cleanly (re-run later) rather than looping. Clears the documents'
+    embedding_error markers once their chunks are repaired.
     """
+    embed_migrate()
     conn = connect()
     stats = {"unembedded": 0, "embedded": 0, "documents_repaired": 0}
     try:
-        stats["unembedded"] = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
-        ).fetchone()[0]
+        stats["unembedded"] = _count_unembedded(conn)
         if dry_run or not stats["unembedded"]:
             return stats
         emb = EmbeddingClient()
@@ -852,7 +869,7 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
                 break
             rows = conn.execute(
                 "SELECT id, document_id, text FROM chunks "
-                "WHERE embedding IS NULL AND embedding_json IS NULL ORDER BY id LIMIT ?",
+                "WHERE embedding IS NULL ORDER BY id LIMIT ?",
                 (take,),
             ).fetchall()
             if not rows:
@@ -881,8 +898,7 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
         now = _now()
         for doc_id in touched_docs:
             remaining = conn.execute(
-                "SELECT 1 FROM chunks WHERE document_id = ? "
-                "AND embedding IS NULL AND embedding_json IS NULL LIMIT 1",
+                "SELECT 1 FROM chunks WHERE document_id = ? AND embedding IS NULL LIMIT 1",
                 (doc_id,),
             ).fetchone()
             if remaining:
@@ -899,9 +915,7 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
                 )
                 stats["documents_repaired"] += 1
         conn.commit()
-        stats["remaining"] = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
-        ).fetchone()[0]
+        stats["remaining"] = _count_unembedded(conn)
     finally:
         conn.close()
     return stats
@@ -912,12 +926,16 @@ def embed_migrate(batch: int = 2000, limit: int = 0) -> dict:
 
     Idempotent and resumable: each batch commits, and the WHERE clause only
     sees still-unconverted rows, so it can run repeatedly (including as a
-    nightly catch-up) and safely alongside live workers. embedding_json is
-    left in place; dropping it is a separate maintenance step.
+    nightly catch-up) and safely alongside live workers. No-ops once the
+    legacy column has been dropped (drop_embedding_json).
     """
     conn = connect()
     stats = {"pending": 0, "converted": 0}
     try:
+        if not _has_json_column(conn):
+            stats["remaining"] = 0
+            stats["column_present"] = False
+            return stats
         stats["pending"] = conn.execute(
             "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NOT NULL"
         ).fetchone()[0]
@@ -949,6 +967,37 @@ def embed_migrate(batch: int = 2000, limit: int = 0) -> dict:
     return stats
 
 
+def drop_embedding_json(vacuum: bool = False) -> dict:
+    """Drop the legacy embedding_json column (and optionally VACUUM).
+
+    DESTRUCTIVE and long-running (full table rewrite on a large DB) — run it
+    only in a maintenance window with services stopped, after a backup.
+    Refuses outright if any row still carries a JSON embedding without its
+    BLOB twin, so data can never be lost to an early drop.
+    """
+    conn = connect()
+    try:
+        if not _has_json_column(conn):
+            return {"dropped": False, "reason": "column already absent"}
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NOT NULL"
+        ).fetchone()[0]
+        if pending:
+            return {"dropped": False,
+                    "reason": f"{pending} rows still unconverted — run kb-embed-migrate first"}
+        print("dropping embedding_json (full table rewrite; this takes a while)...")
+        conn.execute("ALTER TABLE chunks DROP COLUMN embedding_json")
+        conn.commit()
+        result = {"dropped": True}
+        if vacuum:
+            print("VACUUM (reclaims the freed space; also slow)...")
+            conn.execute("VACUUM")
+            result["vacuumed"] = True
+        return result
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Sidecar vector index — full-corpus semantic scan
 #
@@ -973,8 +1022,7 @@ def build_vector_index(batch: int = 5000) -> dict:
     conn = connect()
     try:
         total = conn.execute(
-            "SELECT COUNT(*) FROM chunks "
-            "WHERE embedding IS NOT NULL OR embedding_json IS NOT NULL"
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NOT NULL"
         ).fetchone()[0]
         if not total:
             return {"count": 0, "built": False}
@@ -985,8 +1033,7 @@ def build_vector_index(batch: int = 5000) -> dict:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         first = conn.execute(
-            "SELECT embedding, embedding_json FROM chunks "
-            "WHERE embedding IS NOT NULL OR embedding_json IS NOT NULL LIMIT 1"
+            "SELECT embedding FROM chunks WHERE embedding IS NOT NULL LIMIT 1"
         ).fetchone()
         dim = len(_row_embedding(first))
 
@@ -996,8 +1043,8 @@ def build_vector_index(batch: int = 5000) -> dict:
         pos, last_id, max_id = 0, 0, 0
         while pos < total:
             rows = conn.execute(
-                "SELECT id, embedding, embedding_json FROM chunks "
-                "WHERE id > ? AND (embedding IS NOT NULL OR embedding_json IS NOT NULL) "
+                "SELECT id, embedding FROM chunks "
+                "WHERE id > ? AND embedding IS NOT NULL "
                 "ORDER BY id LIMIT ?",
                 (last_id, batch),
             ).fetchall()
@@ -1107,7 +1154,7 @@ def search(
         fts = _fts_query(query)
         rows = conn.execute(
             f"""
-            SELECT c.id AS chunk_id, c.text, c.embedding_json, d.id AS document_id,
+            SELECT c.id AS chunk_id, c.text, d.id AS document_id,
                    d.title, d.source_type, d.source_path, d.url, d.entities_json,
                    d.metadata_json, bm25(chunks_fts) AS rank
             FROM chunks_fts
@@ -1199,8 +1246,8 @@ def _vector_full_scan(conn, q_vec, top_n: int):
     # Chunks newer than the sidecar build (last night's ingests) get scored
     # live so freshness never regresses vs the old recent-chunks pool.
     tail = conn.execute(
-        "SELECT id, embedding, embedding_json FROM chunks "
-        "WHERE id > ? AND (embedding IS NOT NULL OR embedding_json IS NOT NULL) "
+        "SELECT id, embedding FROM chunks "
+        "WHERE id > ? AND embedding IS NOT NULL "
         "ORDER BY id DESC LIMIT ?",
         (int(meta["max_chunk_id"]), VECTOR_POOL_RECENT_CHUNKS),
     ).fetchall()
@@ -1249,7 +1296,7 @@ def _vector_pool_scan(conn, q_vec, fts: str, where_sql: str, params: list,
         SELECT c.id AS chunk_id
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE (c.embedding IS NOT NULL OR c.embedding_json IS NOT NULL) {where_sql}
+        WHERE c.embedding IS NOT NULL {where_sql}
         ORDER BY c.id DESC
         LIMIT ?
         """,
@@ -1261,13 +1308,12 @@ def _vector_pool_scan(conn, q_vec, fts: str, where_sql: str, params: list,
     placeholders = ",".join("?" for _ in pool_ids)
     rows = conn.execute(
         f"""
-        SELECT c.id AS chunk_id, c.text, c.embedding, c.embedding_json,
+        SELECT c.id AS chunk_id, c.text, c.embedding,
                d.id AS document_id, d.title, d.source_type, d.source_path,
                d.url, d.entities_json, d.metadata_json
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE (c.embedding IS NOT NULL OR c.embedding_json IS NOT NULL)
-          AND c.id IN ({placeholders})
+        WHERE c.embedding IS NOT NULL AND c.id IN ({placeholders})
         """,
         pool_ids,
     ).fetchall()
