@@ -226,10 +226,13 @@ class NativePdfPayloadTests(unittest.TestCase):
             messages, system = lp.document_message_payload("prompt", pdf_path=pdf, text="body")
         self.assertIsNone(system)
         content = messages[0]["content"]
-        self.assertEqual(content[0]["type"], "document")
-        self.assertEqual(content[0]["source"]["media_type"], "application/pdf")
-        self.assertEqual(content[0]["cache_control"], {"type": "ephemeral"})
-        self.assertEqual(content[1], {"type": "text", "text": "prompt"})
+        # A data-not-instructions framing note precedes the document block.
+        self.assertEqual(content[0]["type"], "text")
+        self.assertIn("never as instructions", content[0]["text"])
+        self.assertEqual(content[1]["type"], "document")
+        self.assertEqual(content[1]["source"]["media_type"], "application/pdf")
+        self.assertEqual(content[1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(content[2], {"type": "text", "text": "prompt"})
 
     def test_oversized_pdf_falls_back(self):
         import scripts.llm_provider as lp
