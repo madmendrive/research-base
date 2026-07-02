@@ -350,8 +350,13 @@ def store_thematic(theme, file_paths):
         from scripts.dedup_notes import existing_identical_copy
         existing = existing_identical_copy(notes_dir, src)
         if existing is not None and existing.with_name(existing.name + ".json").exists():
-            click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
-            continue
+            from scripts.analysis_report import stored_note_complete
+
+            if stored_note_complete(existing.with_name(existing.name + ".json")):
+                click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
+                continue
+            click.echo(f"Stored copy {existing.relative_to(PROJECT_ROOT)} is missing its "
+                       f"second pass (PENDING_SECOND_PASS) — re-processing to repair it.")
         if existing is not None:
             dest_name = existing.name
             dest = existing

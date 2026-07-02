@@ -17,6 +17,7 @@ from scripts.analysis_report import (
     ANALYSIS_REPORT_INSTRUCTIONS as ANALYSIS_REPORT_ADDENDUM,
     build_second_pass_prompt,
     merge_analysis_report,
+    stored_note_complete,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -215,12 +216,15 @@ def store_research(ticker, file_path):
     from scripts.dedup_notes import existing_identical_copy
     existing = existing_identical_copy(notes_dir, src)
     if existing is not None and existing.with_name(existing.name + ".json").exists():
-        click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
-        return
+        if stored_note_complete(existing.with_name(existing.name + ".json")):
+            click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
+            return
+        click.echo(f"Stored copy {existing.relative_to(PROJECT_ROOT)} is missing its "
+                   f"second pass (PENDING_SECOND_PASS) — re-processing to repair it.")
     if existing is not None:
         dest_name = existing.name
         dest = existing
-        click.echo(f"Reusing existing copy {dest.relative_to(PROJECT_ROOT)} (no extraction JSON yet).")
+        click.echo(f"Reusing existing copy {dest.relative_to(PROJECT_ROOT)}.")
     else:
         dest_name = f"{_today_prefix()}_{src.name}"
         dest = notes_dir / dest_name
