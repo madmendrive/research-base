@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -42,7 +43,75 @@ def _init_jobs(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_jobs_status_available ON jobs(status, available_at);
         """
     )
+    # Additive migration: claimed_by records the claiming worker's PID so the
+    # stale reaper can tell "worker died" from "legitimately long job"
+    # (nightly reindexes have run 12+ hours; a wall-clock cutoff alone would
+    # requeue them mid-run).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    if "claimed_by" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN claimed_by TEXT")
     conn.commit()
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return bool(ok) and code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def acquire_singleton_lock(name: str) -> Path:
+    """One-process-per-role lockfile (worker lane, heartbeat).
+
+    Nothing used to stop a second heavy worker or heartbeat from starting,
+    which breaks the single-writer invariant for entity summaries. Raises
+    RuntimeError if a live process already holds the lock; stale locks
+    (dead PID, or our own PID after a crashy restart) are taken over.
+    """
+    kb.KB_DIR.mkdir(parents=True, exist_ok=True)
+    path = kb.KB_DIR / f"{name}.lock"
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
+            return path
+        except FileExistsError:
+            try:
+                pid = int(path.read_text(encoding="utf-8").strip() or 0)
+            except (OSError, ValueError):
+                pid = 0
+            if pid and pid != os.getpid() and _pid_alive(pid):
+                raise RuntimeError(
+                    f"another process (pid {pid}) already holds the '{name}' lock; "
+                    f"refusing to start a duplicate"
+                )
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def enqueue_job(kind: str, payload: dict | None = None, dedupe_key: str | None = None,
@@ -146,36 +215,102 @@ def _claim_next(conn, kinds: list[str] | None = None,
     conn.execute(
         """
         UPDATE jobs
-        SET status = 'running', attempts = attempts + 1, started_at = ?, updated_at = ?
+        SET status = 'running', attempts = attempts + 1, started_at = ?, updated_at = ?,
+            claimed_by = ?
         WHERE id = ?
         """,
-        (_now(), _now(), row["id"]),
+        (_now(), _now(), str(os.getpid()), row["id"]),
     )
     conn.commit()
     return dict(row)
 
 
-def _recover_stale_running(conn) -> int:
+def _notify_terminal_failure(kind: str, job_id: int, payload_json: str | None, error: str) -> None:
+    """Tell the operator a job permanently failed. Jobs used to exhaust their
+    attempts silently — dropped research PDFs with no notice, after the bot
+    had promised the analysis. Best-effort: never breaks queue bookkeeping."""
+    try:
+        detail = ""
+        try:
+            payload = json.loads(payload_json or "{}")
+            detail = str(payload.get("question") or payload.get("path") or "")[:300]
+        except Exception:
+            pass
+        msg = f"⚠️ Job #{job_id} ({kind}) permanently failed: {str(error)[:300]}"
+        if detail:
+            msg += f"\n{detail}"
+        telegram_send(msg)
+    except Exception:
+        pass
+
+
+def _recover_stale_running(conn, kinds: list[str] | None = None,
+                           exclude_kinds: list[str] | None = None) -> int:
+    """Recover 'running' jobs whose owning worker process is gone.
+
+    A job claimed by a live PID is never touched — reindexes legitimately run
+    for hours, and the old 45-minute wall-clock cutoff requeued them mid-run
+    (breaking the single-writer lane if anything else then claimed the copy).
+    Dead-owner jobs are requeued immediately, or — when the crash consumed the
+    final attempt — marked failed with a Telegram notice; previously those rows
+    sat 'running' forever and analyst questions (max_attempts=1) silently
+    vanished on any worker crash. Rows without a recorded PID (legacy) fall
+    back to the JOB_STALE_MINUTES age cutoff. Lane filters keep each worker's
+    reaper on its own side of the queue partition.
+    """
     stale_minutes = int(os.environ.get("JOB_STALE_MINUTES", "45") or 45)
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).isoformat(timespec="seconds")
+    where = "status = 'running'"
+    params: list = []
+    if kinds:
+        where += f" AND kind IN ({','.join('?' for _ in kinds)})"
+        params.extend(kinds)
+    if exclude_kinds:
+        where += f" AND kind NOT IN ({','.join('?' for _ in exclude_kinds)})"
+        params.extend(exclude_kinds)
+    rows = conn.execute(
+        f"""SELECT id, kind, attempts, max_attempts, claimed_by, started_at, payload_json
+            FROM jobs WHERE {where}""",
+        params,
+    ).fetchall()
+    recovered = 0
     now = _now()
-    cur = conn.execute(
-        """
-        UPDATE jobs
-        SET status = 'queued',
-            available_at = ?,
-            updated_at = ?,
-            started_at = NULL,
-            last_error = COALESCE(last_error, 'Recovered stale running job')
-        WHERE status = 'running'
-          AND started_at IS NOT NULL
-          AND started_at <= ?
-          AND attempts < max_attempts
-        """,
-        (now, now, cutoff),
-    )
-    conn.commit()
-    return int(cur.rowcount or 0)
+    for row in rows:
+        try:
+            pid = int(row["claimed_by"] or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        if pid:
+            if pid == os.getpid() or _pid_alive(pid):
+                continue
+        else:
+            started = row["started_at"]
+            if not started or started > cutoff:
+                continue
+        if int(row["attempts"] or 0) >= int(row["max_attempts"] or 3):
+            cur = conn.execute(
+                """UPDATE jobs SET status = 'failed', finished_at = ?, updated_at = ?,
+                   last_error = ? WHERE id = ? AND status = 'running'""",
+                (now, now, "worker died mid-run on the final attempt", row["id"]),
+            )
+            conn.commit()
+            if cur.rowcount:
+                recovered += 1
+                _notify_terminal_failure(
+                    row["kind"], int(row["id"]), row["payload_json"],
+                    "worker died mid-run; not retrying (attempts exhausted)",
+                )
+        else:
+            cur = conn.execute(
+                """UPDATE jobs SET status = 'queued', available_at = ?, updated_at = ?,
+                   started_at = NULL, claimed_by = NULL,
+                   last_error = COALESCE(last_error, 'Recovered stale running job')
+                   WHERE id = ? AND status = 'running'""",
+                (now, now, row["id"]),
+            )
+            conn.commit()
+            recovered += int(cur.rowcount or 0)
+    return recovered
 
 
 def _complete(conn, job_id: int) -> None:
@@ -202,6 +337,9 @@ def _fail(conn, job: dict, error: str) -> None:
         (status, error, available, _now(), status, _now(), job["id"]),
     )
     conn.commit()
+    if status == "failed":
+        _notify_terminal_failure(job.get("kind", "?"), int(job["id"]),
+                                 job.get("payload_json"), error)
 
 
 def _run_subprocess(args: list[str]) -> str:
@@ -533,13 +671,16 @@ def worker(run_once: bool = False, sleep_seconds: int = 5,
         raise ValueError("pass kinds or exclude_kinds, not both")
     lane = f" lane={','.join(kinds)}" if kinds else (
         f" lane=all-except-{','.join(exclude_kinds)}" if exclude_kinds else "")
+    lane_key = "worker_" + re.sub(r"[^A-Za-z0-9]+", "_", lane.strip() or "all")
+    lock_path = acquire_singleton_lock(lane_key)
     print(f"worker started{lane}")
     conn = kb.connect()
     _init_jobs(conn)
     try:
         while True:
             try:
-                recovered = _recover_stale_running(conn)
+                recovered = _recover_stale_running(conn, kinds=kinds,
+                                                   exclude_kinds=exclude_kinds)
                 if recovered:
                     print(f"recovered {recovered} stale running job(s)")
                 job = _claim_next(conn, kinds=kinds, exclude_kinds=exclude_kinds)
@@ -559,15 +700,34 @@ def worker(run_once: bool = False, sleep_seconds: int = 5,
                 continue
             try:
                 result = _process_job(job)
-                _retry_locked(_complete, conn, int(job["id"]))
-                print(f"[job {job['id']}] {job['kind']} ok: {result}")
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
-                _retry_locked(_fail, conn, job, err)
+                try:
+                    _retry_locked(_fail, conn, job, err)
+                except Exception as book_err:
+                    # Bookkeeping failure must not kill the daemon; the reaper
+                    # will recover the still-'running' row if we die.
+                    print(f"[job {job['id']}] failed AND could not be marked "
+                          f"({book_err}); original error: {err}")
                 print(f"[job {job['id']}] {job['kind']} failed: {err}")
                 if run_once:
                     raise
+            else:
+                # Success bookkeeping sits OUTSIDE the job try-block: a DB lock
+                # during _complete used to route a finished job through _fail,
+                # re-running its side effects (duplicate ingests/sends) later.
+                try:
+                    _retry_locked(_complete, conn, int(job["id"]), attempts=24)
+                    print(f"[job {job['id']}] {job['kind']} ok: {result}")
+                except Exception as book_err:
+                    print(f"[job {job['id']}] {job['kind']} SUCCEEDED but could not "
+                          f"be marked succeeded ({book_err}); it may re-run after a "
+                          f"worker restart — investigate the DB lock")
             if run_once:
                 return
     finally:
         conn.close()
+        try:
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass

@@ -46,7 +46,7 @@ class TestWorkerPollSurvivesLock(unittest.TestCase):
         class StopLoop(Exception):
             pass
 
-        def fake_recover(conn):
+        def fake_recover(conn, kinds=None, exclude_kinds=None):
             polls["n"] += 1
             if polls["n"] == 1:
                 raise sqlite3.OperationalError("database is locked")
@@ -57,6 +57,8 @@ class TestWorkerPollSurvivesLock(unittest.TestCase):
         with mock.patch.object(jobs, "_recover_stale_running", side_effect=fake_recover), \
              mock.patch.object(jobs, "_claim_next", return_value=None), \
              mock.patch.object(jobs, "_init_jobs"), \
+             mock.patch.object(jobs, "acquire_singleton_lock",
+                               return_value=mock.MagicMock()), \
              mock.patch.object(jobs.kb, "connect", return_value=mock.MagicMock()), \
              mock.patch("time.sleep"):
             with self.assertRaises(StopLoop):

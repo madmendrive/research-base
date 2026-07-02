@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import re
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from scripts.jobs import enqueue_job
+from scripts.jobs import acquire_singleton_lock, enqueue_job
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -159,133 +160,156 @@ def _interval_due(now: datetime, hours: int, state: dict, key: str) -> bool:
 
 
 def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: int = 60) -> None:
-    while True:
-        agenda = load_agenda(agenda_path)
-        tz = ZoneInfo(str(agenda.get("timezone") or "Asia/Hong_Kong"))
-        now = datetime.now(tz)
-        state = _load_state()
-        notify = bool(agenda.get("notify", True))
-
-        # Failsafe: if a combined daily digest has been waiting too long for a
-        # sweep that stalled/failed, flush whatever parts arrived.
-        try:
-            from scripts.combined_digest import flush_if_stale
-            flush_if_stale()
-        except Exception as e:
-            print(f"combined digest flush check failed ({e})")
-
-        folder_times = agenda.get("folder_sweep_times") or []
-        email_times = agenda.get("email_sweep_times") or []
-        folder_due = _scheduled_slot_due(now, list(folder_times), state, "folder", catch_up=False)
-        # catch_up: once-daily now, so a slot missed during downtime should
-        # still run on startup rather than skip the day's research email.
-        email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=True)
-
-        # When both daily sweeps fire in the same tick (the 03:00 pair), run
-        # them in combined mode: each submits its digest to the coordinator and
-        # one merged message is sent once both conclude.
-        combined = bool(folder_due and email_due)
-        if combined:
+    lock_path = None
+    if not run_once:
+        lock_path = acquire_singleton_lock("heartbeat")
+    try:
+        while True:
+            # One bad tick must not kill the scheduler: a ~30s sustained DB
+            # lock did exactly that on 2026-06-29 (enqueue_job re-raises after
+            # its retries), and with no supervisor on this box every scheduled
+            # sweep silently stopped until a manual restart.
             try:
-                from scripts.combined_digest import begin_day
-                begin_day()
-            except Exception as e:
-                print(f"combined digest begin_day failed ({e}); sweeps will send separately")
-                combined = False
+                _heartbeat_tick(agenda_path)
+            except Exception:
+                print("heartbeat tick failed; continuing:\n" + traceback.format_exc())
+                if run_once:
+                    raise
+            if run_once:
+                return
+            time.sleep(sleep_seconds)
+    finally:
+        if lock_path is not None:
+            try:
+                lock_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
-        if folder_due:
-            scheduled, run_key = folder_due
+
+def _heartbeat_tick(agenda_path: str | Path) -> None:
+    agenda = load_agenda(agenda_path)
+    tz = ZoneInfo(str(agenda.get("timezone") or "Asia/Hong_Kong"))
+    now = datetime.now(tz)
+    state = _load_state()
+    notify = bool(agenda.get("notify", True))
+
+    # Failsafe: if a combined daily digest has been waiting too long for a
+    # sweep that stalled/failed, flush whatever parts arrived.
+    try:
+        from scripts.combined_digest import flush_if_stale
+        flush_if_stale()
+    except Exception as e:
+        print(f"combined digest flush check failed ({e})")
+
+    folder_times = agenda.get("folder_sweep_times") or []
+    email_times = agenda.get("email_sweep_times") or []
+    folder_due = _scheduled_slot_due(now, list(folder_times), state, "folder", catch_up=False)
+    # catch_up: once-daily now, so a slot missed during downtime should
+    # still run on startup rather than skip the day's research email.
+    email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=True)
+
+    # When both daily sweeps fire in the same tick (the 03:00 pair), run
+    # them in combined mode: each submits its digest to the coordinator and
+    # one merged message is sent once both conclude.
+    combined = bool(folder_due and email_due)
+    if combined:
+        try:
+            from scripts.combined_digest import begin_day
+            begin_day()
+        except Exception as e:
+            print(f"combined digest begin_day failed ({e}); sweeps will send separately")
+            combined = False
+
+    if folder_due:
+        scheduled, run_key = folder_due
+        enqueue_job(
+            "folder_scan",
+            {
+                "folder": agenda.get("folder"),
+                "notify": notify,
+                "analyse": bool(agenda.get("folder_analyse", False)),
+                "combined": combined,
+            },
+            dedupe_key=f"folder_scan:{now.strftime('%Y-%m-%d')}:{scheduled}",
+        )
+        state[run_key] = now.isoformat(timespec="seconds")
+
+    if email_due:
+        scheduled, run_key = email_due
+        enqueue_job(
+            "email_sweep",
+            {
+                "notify": notify,
+                "analyse_attachments": bool(agenda.get("email_analyse_attachments", False)),
+                "extract_research": bool(agenda.get("email_extract_research", True)),
+                "combined": combined,
+            },
+            dedupe_key=f"email_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
+        )
+        state[run_key] = now.isoformat(timespec="seconds")
+
+    headline_times = agenda.get("headline_sweep_times") or []
+    if headline_times:
+        # catch_up: a slot missed while the heartbeat was down (reboot,
+        # crash) fires once on startup instead of being silently dropped.
+        # Bounded to today — run keys are per-date.
+        headline_due = _scheduled_slot_due(now, list(headline_times), state, "headline", catch_up=True)
+        if headline_due:
+            scheduled, run_key = headline_due
             enqueue_job(
-                "folder_scan",
-                {
-                    "folder": agenda.get("folder"),
-                    "notify": notify,
-                    "analyse": bool(agenda.get("folder_analyse", False)),
-                    "combined": combined,
-                },
-                dedupe_key=f"folder_scan:{now.strftime('%Y-%m-%d')}:{scheduled}",
+                "headline_sweep",
+                {"notify": notify,
+                 "window_hours": int(agenda.get("headline_window_hours", 24)),
+                 "max_digest_items": int(agenda.get("headline_max_items", 20))},
+                dedupe_key=f"headline_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )
             state[run_key] = now.isoformat(timespec="seconds")
-
-        if email_due:
-            scheduled, run_key = email_due
+    else:
+        interval = int(agenda.get("headline_interval_hours") or 6)
+        if _interval_due(now, interval, state, "headline:last_run"):
             enqueue_job(
-                "email_sweep",
-                {
-                    "notify": notify,
-                    "analyse_attachments": bool(agenda.get("email_analyse_attachments", False)),
-                    "extract_research": bool(agenda.get("email_extract_research", True)),
-                    "combined": combined,
-                },
-                dedupe_key=f"email_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
+                "headline_sweep",
+                {"notify": notify, "window_hours": interval, "max_digest_items": 20},
+                dedupe_key=f"headline_sweep:interval:{now.isoformat(timespec='minutes')}",
             )
-            state[run_key] = now.isoformat(timespec="seconds")
 
-        headline_times = agenda.get("headline_sweep_times") or []
-        if headline_times:
-            # catch_up: a slot missed while the heartbeat was down (reboot,
-            # crash) fires once on startup instead of being silently dropped.
-            # Bounded to today — run keys are per-date.
-            headline_due = _scheduled_slot_due(now, list(headline_times), state, "headline", catch_up=True)
-            if headline_due:
-                scheduled, run_key = headline_due
-                enqueue_job(
-                    "headline_sweep",
-                    {"notify": notify,
-                     "window_hours": int(agenda.get("headline_window_hours", 24)),
-                     "max_digest_items": int(agenda.get("headline_max_items", 20))},
-                    dedupe_key=f"headline_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
-                )
-                state[run_key] = now.isoformat(timespec="seconds")
-        else:
-            interval = int(agenda.get("headline_interval_hours") or 6)
-            if _interval_due(now, interval, state, "headline:last_run"):
-                enqueue_job(
-                    "headline_sweep",
-                    {"notify": notify, "window_hours": interval, "max_digest_items": 20},
-                    dedupe_key=f"headline_sweep:interval:{now.isoformat(timespec='minutes')}",
-                )
+    # Nightly reindex closes the gap between the bot/sweeper store path
+    # (which writes notes but doesn't index them) and the searchable KB +
+    # structured research memory. Both jobs are hash-checked, so re-runs
+    # only touch new/changed files.
+    reindex_times = agenda.get("reindex_times")
+    if reindex_times is None:
+        reindex_times = ["03:00"]
+    reindex_due = _scheduled_slot_due(now, list(reindex_times), state, "reindex", catch_up=False)
+    if reindex_due:
+        scheduled, run_key = reindex_due
+        enqueue_job(
+            "kb_reindex",
+            {"source": "all", "notify": False},
+            dedupe_key=f"kb_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
+        )
+        enqueue_job(
+            "research_map_reindex",
+            {"notify": False},
+            dedupe_key=f"research_map_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
+        )
+        state[run_key] = now.isoformat(timespec="seconds")
 
-        # Nightly reindex closes the gap between the bot/sweeper store path
-        # (which writes notes but doesn't index them) and the searchable KB +
-        # structured research memory. Both jobs are hash-checked, so re-runs
-        # only touch new/changed files.
-        reindex_times = agenda.get("reindex_times")
-        if reindex_times is None:
-            reindex_times = ["03:00"]
-        reindex_due = _scheduled_slot_due(now, list(reindex_times), state, "reindex", catch_up=False)
-        if reindex_due:
-            scheduled, run_key = reindex_due
-            enqueue_job(
-                "kb_reindex",
-                {"source": "all", "notify": False},
-                dedupe_key=f"kb_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
-            )
-            enqueue_job(
-                "research_map_reindex",
-                {"notify": False},
-                dedupe_key=f"research_map_reindex:{now.strftime('%Y-%m-%d')}:{scheduled}",
-            )
-            state[run_key] = now.isoformat(timespec="seconds")
+    # Nightly study run (after the 03:00 reindex) refreshes company/theme
+    # dossiers for targets touched by documents in the last ~30h, so the
+    # synthesis layer tracks the corpus instead of decaying. Cost-capped;
+    # a quiet day studies nothing.
+    study_times = agenda.get("study_times")
+    if study_times is None:
+        study_times = ["03:30"]
+    study_due = _scheduled_slot_due(now, list(study_times), state, "study", catch_up=True)
+    if study_due:
+        scheduled, run_key = study_due
+        enqueue_job(
+            "study",
+            {"since_hours": 30, "max_cost": 15, "notify": True},
+            dedupe_key=f"study:{now.strftime('%Y-%m-%d')}:{scheduled}",
+        )
+        state[run_key] = now.isoformat(timespec="seconds")
 
-        # Nightly study run (after the 03:00 reindex) refreshes company/theme
-        # dossiers for targets touched by documents in the last ~30h, so the
-        # synthesis layer tracks the corpus instead of decaying. Cost-capped;
-        # a quiet day studies nothing.
-        study_times = agenda.get("study_times")
-        if study_times is None:
-            study_times = ["03:30"]
-        study_due = _scheduled_slot_due(now, list(study_times), state, "study", catch_up=True)
-        if study_due:
-            scheduled, run_key = study_due
-            enqueue_job(
-                "study",
-                {"since_hours": 30, "max_cost": 15, "notify": True},
-                dedupe_key=f"study:{now.strftime('%Y-%m-%d')}:{scheduled}",
-            )
-            state[run_key] = now.isoformat(timespec="seconds")
-
-        _save_state(state)
-        if run_once:
-            return
-        time.sleep(sleep_seconds)
+    _save_state(state)
