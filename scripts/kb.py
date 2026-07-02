@@ -32,6 +32,9 @@ DEFAULT_SEARCH_LIMIT = 8
 # Python over the full 467k-chunk table takes minutes per query.
 VECTOR_POOL_FTS_CANDIDATES = 400
 VECTOR_POOL_RECENT_CHUNKS = 2000
+# Reciprocal-rank-fusion constant (standard value from the RRF literature);
+# higher K flattens the difference between adjacent ranks.
+RRF_K = 60.0
 
 log = logging.getLogger("kb")
 
@@ -924,10 +927,15 @@ def search(
             [fts, *params, max(limit * 3, limit)],
         ).fetchall()
 
+        # Reciprocal-rank fusion. SQLite bm25() returns NEGATIVE values (more
+        # negative = better); the old max(rank, 0.0) clamp flattened every FTS
+        # hit to the same score, and raw cosine (~0.2-0.65) could then never
+        # outrank a keyword hit — "hybrid" search was effectively FTS-only.
+        # Fusing by rank position needs no cross-scale calibration.
         results: dict[int, dict] = {}
-        for pos, row in enumerate(rows):
-            score = 1.0 / (1.0 + max(float(row["rank"]), 0.0)) + max(0.0, 0.25 - pos * 0.01)
-            results[int(row["chunk_id"])] = _row_to_result(row, score, "fts")
+        for pos, row in enumerate(rows, start=1):
+            results[int(row["chunk_id"])] = _row_to_result(
+                row, 1.0 / (RRF_K + pos), "fts")
 
         vector_rows = []
         if use_vector:
@@ -984,13 +992,15 @@ def search(
                 for row in vector_rows:
                     vec = json.loads(row["embedding_json"])
                     scored.append((_cosine(q_vec, vec), row))
-                for score, row in sorted(scored, key=lambda x: x[0], reverse=True)[: max(limit * 3, limit)]:
+                top = sorted(scored, key=lambda x: x[0], reverse=True)[: max(limit * 3, limit)]
+                for pos, (cos, row) in enumerate(top, start=1):
                     chunk_id = int(row["chunk_id"])
+                    contribution = 1.0 / (RRF_K + pos)
                     if chunk_id in results:
-                        results[chunk_id]["score"] += float(score)
+                        results[chunk_id]["score"] += contribution
                         results[chunk_id]["match"] = "hybrid"
                     else:
-                        results[chunk_id] = _row_to_result(row, float(score), "vector")
+                        results[chunk_id] = _row_to_result(row, contribution, "vector")
 
         ordered = sorted(results.values(), key=lambda r: r["score"], reverse=True)
         return ordered[:limit]
