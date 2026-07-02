@@ -764,7 +764,9 @@ def _translate_non_english(items):
         )
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            # Headline translation is a constrained task — Haiku handles it at
+            # a third of the cost; the previous Sonnet 4 ID was deprecated.
+            model="claude-haiku-4-5-20251001",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )

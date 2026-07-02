@@ -21,7 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 
-EXTRACT_MODEL = "claude-sonnet-4-20250514"
+# Sonnet 4 was deprecated with a June 2026 retirement; 4.6 is the same price tier.
+EXTRACT_MODEL = "claude-sonnet-4-6"
 
 EXTRACTION_PROMPT = """\
 You are extracting financial data from an SEC filing. Extract the data EXACTLY as \
