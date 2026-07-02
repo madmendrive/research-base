@@ -351,6 +351,20 @@ def _source_uri_for_file(path: Path, source_type: str) -> str:
         return f"{source_type}:{path.resolve().as_posix()}"
 
 
+_query_embedder = None
+
+
+def _get_query_embedder():
+    """Process-lifetime EmbeddingClient for search queries. A fresh client per
+    search paid a full TLS handshake (through Norton's interception) on every
+    query — measured at ~2.5s of the per-search latency; a reused connection
+    is ~0.2s. Re-created if EmbeddingClient is swapped (test stubs)."""
+    global _query_embedder
+    if _query_embedder is None or not isinstance(_query_embedder, EmbeddingClient):
+        _query_embedder = EmbeddingClient()
+    return _query_embedder
+
+
 class EmbeddingClient:
     def __init__(self, provider: str | None = None, model: str | None = None):
         self.provider = (provider or os.environ.get("KB_EMBEDDING_PROVIDER") or "openai").lower()
@@ -967,6 +981,26 @@ def embed_migrate(batch: int = 2000, limit: int = 0) -> dict:
     return stats
 
 
+def fts_optimize() -> dict:
+    """Merge the FTS index's accumulated b-tree segments into one.
+
+    Bulk ingest waves leave the FTS index fragmented (measured: ~81k segment
+    rows after the June waves, ~1.7s per keyword query). One-time heavy write
+    — run when the queue is quiet; FTS5's automerge keeps fragmentation low
+    afterwards.
+    """
+    import time as _time
+
+    conn = connect()
+    try:
+        t0 = _time.time()
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
+        conn.commit()
+        return {"optimized": True, "seconds": round(_time.time() - t0, 1)}
+    finally:
+        conn.close()
+
+
 def drop_embedding_json(vacuum: bool = False) -> dict:
     """Drop the legacy embedding_json column (and optionally VACUUM).
 
@@ -1180,7 +1214,7 @@ def search(
         vector_ranked: list = []
         if use_vector:
             try:
-                q_vec = EmbeddingClient().embed_texts([query])[0]
+                q_vec = _get_query_embedder().embed_texts([query])[0]
             except Exception:
                 q_vec = None
             if q_vec is not None:
