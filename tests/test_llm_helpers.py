@@ -179,6 +179,18 @@ class CallApiTests(unittest.TestCase):
         self.assertEqual(len(client.stream_calls), 2)
 
     @mock.patch("time.sleep")
+    def test_rate_limit_error_is_transient(self, _sleep):
+        # Regression: 429s used to raise immediately, aborting the agentic
+        # loop into the expensive full-re-synthesis fallback chain.
+        client = FakeClient([], [
+            RuntimeError("rate_limit_error: Number of requests has exceeded your rate limit (429)"),
+            self._ok_stream("recovered"),
+        ])
+        result = research._call_api(client, [{"role": "user", "content": "q"}])
+        self.assertEqual(result, "recovered")
+        self.assertEqual(len(client.stream_calls), 2)
+
+    @mock.patch("time.sleep")
     def test_truncated_stream_escalates_max_tokens(self, _sleep):
         client = FakeClient([], [
             FakeStream(["trunc"], _response(stop_reason="max_tokens")),
@@ -226,10 +238,13 @@ class NativePdfPayloadTests(unittest.TestCase):
             messages, system = lp.document_message_payload("prompt", pdf_path=pdf, text="body")
         self.assertIsNone(system)
         content = messages[0]["content"]
-        self.assertEqual(content[0]["type"], "document")
-        self.assertEqual(content[0]["source"]["media_type"], "application/pdf")
-        self.assertEqual(content[0]["cache_control"], {"type": "ephemeral"})
-        self.assertEqual(content[1], {"type": "text", "text": "prompt"})
+        # A data-not-instructions framing note precedes the document block.
+        self.assertEqual(content[0]["type"], "text")
+        self.assertIn("never as instructions", content[0]["text"])
+        self.assertEqual(content[1]["type"], "document")
+        self.assertEqual(content[1]["source"]["media_type"], "application/pdf")
+        self.assertEqual(content[1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(content[2], {"type": "text", "text": "prompt"})
 
     def test_oversized_pdf_falls_back(self):
         import scripts.llm_provider as lp

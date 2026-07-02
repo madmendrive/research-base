@@ -91,11 +91,14 @@ def _price_defaults(provider: str, model: str) -> tuple[float, float]:
     provider_l = (provider or "").lower()
     model_l = (model or "").lower()
     if provider_l in {"anthropic", "claude"}:
+        # Opus 4.x is $5/$25 per MTok. The old $15/$75 default (Opus 4.1-era)
+        # overstated cost 3x, so the study budget gate stopped runs at a third
+        # of their actual allowance.
         if "opus" in model_l:
-            return 15.0, 75.0
+            return 5.0, 25.0
         if "sonnet" in model_l:
             return 3.0, 15.0
-        return 10.0, 50.0
+        return 5.0, 25.0
     if "mini" in model_l:
         return 1.0, 4.0
     if model_l.startswith("gpt-5"):

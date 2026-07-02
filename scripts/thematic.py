@@ -53,13 +53,13 @@ def _load_theme_config(theme):
     path = THEMATIC_DIR / theme / "linked_tickers.json"
     if not path.exists():
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
 def _save_theme_config(theme, config):
     path = THEMATIC_DIR / theme / "linked_tickers.json"
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
@@ -350,8 +350,13 @@ def store_thematic(theme, file_paths):
         from scripts.dedup_notes import existing_identical_copy
         existing = existing_identical_copy(notes_dir, src)
         if existing is not None and existing.with_name(existing.name + ".json").exists():
-            click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
-            continue
+            from scripts.analysis_report import stored_note_complete
+
+            if stored_note_complete(existing.with_name(existing.name + ".json")):
+                click.echo(f"Identical file already stored as {existing.relative_to(PROJECT_ROOT)} — skipping re-store.")
+                continue
+            click.echo(f"Stored copy {existing.relative_to(PROJECT_ROOT)} is missing its "
+                       f"second pass (PENDING_SECOND_PASS) — re-processing to repair it.")
         if existing is not None:
             dest_name = existing.name
             dest = existing
@@ -380,7 +385,7 @@ def store_thematic(theme, file_paths):
             note_data.setdefault("metadata", {})["text_truncated"] = True
             click.echo("  WARNING: document exceeded the extraction text ceiling — tail was not analysed")
         json_path = notes_dir / f"{dest_name}.json"
-        with open(json_path, "w") as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(note_data, f, indent=2, ensure_ascii=False)
             f.write("\n")
 
@@ -480,7 +485,7 @@ def rebuild_theme_summary(theme):
     notes = []
     for nf in note_files:
         try:
-            with open(nf) as f:
+            with open(nf, encoding="utf-8") as f:
                 notes.append((nf.name, json.load(f)))
         except Exception as e:
             click.echo(f"  Warning: skipping {nf.name}: {e}")
@@ -755,7 +760,7 @@ def analyse_thematic(theme, file_path):
     # Load existing theme summary
     existing_summary = None
     if summary_path.exists():
-        with open(summary_path) as f:
+        with open(summary_path, encoding="utf-8") as f:
             existing_summary = json.load(f)
 
     src = Path(file_path)
@@ -783,7 +788,7 @@ def analyse_thematic(theme, file_path):
         ticker = lt["ticker"]
         sn_path = DATA_DIR / ticker / "research" / "summary.json"
         if sn_path.exists():
-            with open(sn_path) as f:
+            with open(sn_path, encoding="utf-8") as f:
                 company_summaries[ticker] = json.load(f)
 
     # Build the analysis prompt
@@ -845,7 +850,7 @@ def analyse_thematic(theme, file_path):
             click.echo(f"Copied to {dest.relative_to(PROJECT_ROOT)}")
 
         json_path = notes_dir / f"{dest_name}.json"
-        with open(json_path, "w") as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(new_note, f, indent=2, ensure_ascii=False)
             f.write("\n")
         click.echo(f"Saved extraction: {json_path.relative_to(PROJECT_ROOT)}")

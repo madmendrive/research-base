@@ -78,12 +78,30 @@ def _stage_path(digest: str) -> Path:
 def _load_state() -> dict[str, Any]:
     if not STATE_PATH.exists():
         return {"committed": {}, "failed": {}, "runs": []}
-    return json.loads(STATE_PATH.read_text(encoding="utf-8", errors="replace"))
+    try:
+        return json.loads(STATE_PATH.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        # A corrupt state file used to crash every subsequent ingest_file job
+        # at load until manually repaired. Committed-store dedup still catches
+        # re-ingests, so starting fresh is safe (if costlier); keep the corrupt
+        # file for postmortem.
+        import logging
+
+        logging.getLogger("parallel_ingest").error(
+            "fast-ingest state file is corrupt; starting fresh (saved as .corrupt)")
+        try:
+            STATE_PATH.replace(STATE_PATH.with_suffix(".corrupt"))
+        except OSError:
+            pass
+        return {"committed": {}, "failed": {}, "runs": []}
 
 
 def _save_state(state: dict[str, Any]) -> None:
+    # tmp+replace: a crash mid-write must never corrupt the state file.
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp = STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(STATE_PATH)
 
 
 def scan_pdfs(folder: str | Path, recursive: bool = True) -> list[Path]:

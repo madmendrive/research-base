@@ -117,6 +117,25 @@ def build_second_pass_prompt(new_note_json, author_history_json=None,
     return prompt
 
 
+def stored_note_complete(json_path) -> bool:
+    """True if a stored extraction JSON finished both passes.
+
+    The first save persists analysis_report with the PENDING_SECOND_PASS
+    placeholder before the Opus view-evolution call; a crash between the two
+    saves used to leave the note permanently half-stored, because the
+    PDF+JSON dedup skip treated any existing JSON as done and re-dropping the
+    file could never repair it. Unreadable JSON counts as incomplete.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    try:
+        data = _json.loads(_Path(json_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return "PENDING_SECOND_PASS" not in str(data.get("analysis_report", ""))
+
+
 def merge_analysis_report(note_data, view_evolution_text):
     """Replace PENDING_SECOND_PASS in the analysis_report with actual content."""
     report = note_data.get("analysis_report", "")

@@ -56,7 +56,7 @@ def store_fast(file_path, author, client):
 
     prompt = _build_extraction_prompt(author) + text
     resp = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )

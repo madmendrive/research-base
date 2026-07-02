@@ -168,14 +168,14 @@ class AnalystQuestionJobTests(unittest.TestCase):
         return result, sent
 
     def test_answer_is_pushed_to_telegram(self):
-        result, sent = self._run(lambda q: "The bull case is HBM tightness.")
+        result, sent = self._run(lambda q, **kw: "The bull case is HBM tightness.")
         self.assertIn("answered analyst question", result)
         self.assertEqual(sent[0][0], "html")
         self.assertIn("bull case for memory?", sent[0][1])
         self.assertIn("HBM tightness", sent[0][1])
 
     def test_failure_reports_to_telegram_without_retry_loop(self):
-        def boom(q):
+        def boom(q, **kw):
             raise RuntimeError("provider down")
 
         result, sent = self._run(boom)

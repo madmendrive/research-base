@@ -1,5 +1,6 @@
 import json
 import base64
+import os
 import sqlite3
 import tempfile
 import time
@@ -454,7 +455,9 @@ class ResearchMemoryTests(unittest.TestCase):
         self.assertEqual(canonicalize_ticker("005930.KS"), "005930 KS")
         self.assertEqual(canonicalize_ticker("3037.TW"), "3037 TT")
         self.assertEqual(canonicalize_ticker("285A.T"), "285A JT")
-        self.assertEqual(canonicalize_ticker("6806.T"), "6806 JP")
+        # JP convention is Bloomberg "XXXX JT" (see CLAUDE.md tier conventions);
+        # this line previously expected "6806 JP" and always failed.
+        self.assertEqual(canonicalize_ticker("6806.T"), "6806 JT")
 
     def test_research_memory_canonicalizes_source_subject(self):
         payload = {
@@ -628,8 +631,13 @@ class StudyAgentTests(unittest.TestCase):
         self.assertEqual(_safe_slug("8035 JP / Tokyo Electron"), "8035_JP_Tokyo_Electron")
 
     def test_cost_estimate_uses_provider_defaults(self):
-        cost = _cost_estimate_usd(1_000_000, 1_000_000, provider="anthropic", model="claude-opus-4-7")
-        self.assertAlmostEqual(cost, 90.0)
+        # Opus 4.x is $5/$25 per MTok; the old 15/75 default tripped the study
+        # budget gate at a third of real spend.
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("STUDY_") or "COST" not in k}
+        with mock.patch.dict("os.environ", env, clear=True):
+            cost = _cost_estimate_usd(1_000_000, 1_000_000, provider="anthropic", model="claude-opus-4-8")
+        self.assertAlmostEqual(cost, 30.0)
 
     def test_source_file_mtime_uses_existing_extraction_files(self):
         test_dir = DATA_DIR / "MU" / "research" / "notes" / "_test_research_memory"

@@ -760,6 +760,19 @@ def kb_reindex_cmd(source, force, limit, no_embed, parallel):
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+@cli.command("kb-embed-backfill")
+@click.option("--limit", default=0, type=int,
+              help="Embed at most N chunks this run (0 = all unembedded).")
+@click.option("--batch", default=512, show_default=True, type=int,
+              help="Chunks per DB transaction (embeddings are sub-batched 64/request).")
+@click.option("--dry-run", is_flag=True, help="Only report how many chunks lack embeddings.")
+def kb_embed_backfill_cmd(limit, batch, dry_run):
+    """Embed KB chunks that were stored without embeddings (repairs silent gaps)."""
+    from scripts.kb import embed_backfill
+    stats = embed_backfill(limit=limit, batch=batch, dry_run=dry_run)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
 @cli.command("reingest-clipped")
 @click.option("--folder", default=None, help="Inbox folder to scan (default: research-inbox).")
 @click.option("--threshold", default=30000, show_default=True, type=int,
@@ -1020,7 +1033,9 @@ def gui(port):
     url = f"http://localhost:{port}"
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     click.echo(f"Starting GUI at {url}")
-    app.run(debug=True, port=port, use_reloader=False)
+    # debug=True enables the Werkzeug interactive debugger — an RCE surface
+    # the moment this binds beyond loopback (the plan is Tailscale exposure).
+    app.run(debug=False, port=port, use_reloader=False)
 
 
 if __name__ == "__main__":
