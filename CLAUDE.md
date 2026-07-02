@@ -229,6 +229,15 @@ the new stack has proven itself for a few days).
   `kb-drop-json --vacuum` (already executed 2026-07-03).
 - Fresh DBs are created blob-only; all reads are BLOB-first with a guarded
   legacy-JSON fallback, so the code also works against pre-migration DBs.
+- **Search latency** (2026-07-03, measured): ~0.7-0.8s warm / ~5s cold-process
+  for full hybrid search over the 953k-chunk corpus (was 59s+). Three fixes:
+  (1) FTS ranking happens in a co-routine subquery BEFORE joining chunks —
+  joining in the same statement made SQLite probe the chunks b-tree for every
+  matching row (57s on common tokens); keep this shape if the queries are
+  ever touched. (2) The query-embedding client is a process-lifetime
+  singleton (a fresh client paid ~2.5s of Norton-MITM TLS handshake per
+  query). (3) One-time `kb-fts-optimize` merged ~81k fragmented FTS segments
+  (44s; FTS5 automerge maintains it).
 
 ## Audit fixes 2026-07-02 (branch worktree-audit-fixes)
 
