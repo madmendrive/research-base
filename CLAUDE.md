@@ -195,14 +195,57 @@ After `folder_scan` with `notify=True` queues new files:
 
 ## Known Issues / Incomplete
 
-1. **`scripts/classifier.py` now runs Haiku 4.5** (`claude-haiku-4-5-20251001`) for IR-doc routing — ~3× cheaper than Sonnet 4 with no quality loss for this constrained task. Prompt caching doesn't help (static prefix ~180 tokens, below the 1024 cacheable floor; per-doc text is unique), so the model swap is the cost lever. **`scripts/extractor.py` still uses `claude-sonnet-4-20250514`** — left unchanged; that path is lower-volume and the model is adequate for its routing.
-2. **2 macro notes failed to store** (pre-session) — Richard Excell "But, what if?" and CMR 03.15.2026. PDFs copied; JSON extraction needs retry.
-3. **MOPS not implemented for OTC/TPEx stocks** — current MOPS only works for TWSE main board (`TYPEK=sii`). OTC stocks need `TYPEK=otc`.
-4. **Flask zombie processes** — Windows doesn't always kill Python processes cleanly. Server auto-finds free ports (5080-5099).
-5. **ForexFactory** only provides current week via API. Future weeks scraped via Playwright (cached 12hrs).
-6. **Some TW company IR sites** return 0 files (Acer, Largan, Innolux block automated scraping). MOPS covers their filings.
-7. **Inline-keyboard confirmation for held files** — v1 sends text-only "held for review" Telegram message. v2 should send `[Confirm] [Reclassify] [Drop]` inline buttons.
-8. **Inbox scan digest failure mode** — if an `ingest_file` job fails (after 3 attempts), the digest `count` never reaches `total` and the digest is never sent. Rare in practice; V2 should also trigger digest on failure.
+1. **`scripts/classifier.py` runs Haiku 4.5** (`claude-haiku-4-5-20251001`) for IR-doc routing. **`scripts/extractor.py` now runs `claude-sonnet-4-6`** (2026-07-02 — the old `claude-sonnet-4-20250514` passed its retirement date).
+2. **MOPS not implemented for OTC/TPEx stocks** — current MOPS only works for TWSE main board (`TYPEK=sii`). OTC stocks need `TYPEK=otc`.
+3. **Flask zombie processes** — Windows doesn't always kill Python processes cleanly. Server auto-finds free ports (5080-5099).
+4. **ForexFactory** only provides current week via API. Future weeks scraped via Playwright (cached 12hrs).
+5. **Some TW company IR sites** return 0 files (Acer, Largan, Innolux block automated scraping). MOPS covers their filings.
+6. **Inline-keyboard confirmation for held files** — v1 sends text-only "held for review" Telegram message. v2 should send `[Confirm] [Reclassify] [Drop]` inline buttons.
+7. **Standalone inbox digest failure mode** — non-combined folder-scan digests still require every `ingest_file` job to succeed before sending (combined-mode digests are covered by the failsafe + terminal-failure notices as of 2026-07-02).
+8. **Vector recall ceiling** — vector scoring in `kb.search` only sees the FTS candidate pool + 2,000 newest chunks. The real fix is a float32-BLOB embedding migration (also shrinks the 25.5 GB DB by ~14 GB and cuts the 3-6s search latency); deferred pending an explicit go-ahead because it rewrites the whole DB. CJK FTS tokenization (`name_zh` queries) is a related gap.
+9. **Dual ingest pipelines diverge** — the fast job pipeline (`parallel_ingest`) and the classic pipeline (sweeper/bulk) keep separate SHA-state namespaces, and the fast path skips `_routing_log.jsonl`, held-for-review notices, and `summary.json` rebuilds. Don't run the sweeper alongside job-based folder scans on the same inbox.
+
+## Audit fixes 2026-07-02 (branch worktree-audit-fixes)
+
+Full audit + fix session (see AUDIT_PLAN.md and the branch's commit messages).
+Highlights that change day-to-day behavior:
+
+- **Telegram delivery is verified** (`scripts/notify.py`): status checked,
+  429/5xx retried honoring retry_after, failures logged, send functions
+  return a success bool. Terminal job failures (attempts exhausted or worker
+  death on the final attempt) now send a ⚠️ Telegram notice.
+- **Combined 03:00 digest** is race-free (cross-process lockfile, atomic
+  state, claim-before-send); failsafe is 90 min from last activity
+  (`COMBINED_DIGEST_STALE_MINUTES`); late parts are sent as "(late)"
+  follow-ups instead of being dropped.
+- **KB embeddings**: `index_text` persists `embedding_error` on the document
+  row; `python main.py kb-embed-backfill` repairs unembedded chunks (the
+  2026-06-14..16 reindex wave left 461k chunks — 48% — unembedded and
+  invisible); nightly reindex stats report `unembedded_chunks`.
+- **Hybrid search is genuinely hybrid**: reciprocal-rank fusion replaced the
+  broken max(bm25,0)+cosine sum (keyword hits all scored 1.0; semantic hits
+  could never outrank them).
+- **Job system**: `jobs.claimed_by` (worker PID) makes the stale reaper
+  liveness-aware — a live worker's job is never requeued mid-run (the old
+  45-min cutoff violated the single-writer lane); dead-owner jobs recover
+  immediately; lane-filtered reaping; worker lanes + heartbeat hold
+  singleton locks in `data/_kb/*.lock`; heartbeat survives bad ticks;
+  success bookkeeping can no longer convert a finished job into a retry.
+- **Injection framing everywhere**: scraped headlines/articles, analyst
+  readthroughs, kb.ask sources, classifier/extractor prompts, native-PDF
+  extraction payloads, and `<research_memory>` blocks (with tag/attribute
+  escaping) all carry data-not-instructions framing;
+  ANALYST_SYSTEM_PROMPT has an untrusted-content section + grounding
+  discipline ("what would change my mind", staleness flags).
+- **Half-stored notes self-repair**: a `.json` still containing
+  PENDING_SECOND_PASS (crash between extraction save and the Opus second
+  pass) is treated as incomplete — re-dropping the file re-processes it.
+- Encoding: the 13 remaining `open()` calls without `encoding=` are fixed
+  (PYTHONUTF8=1 is still required for anything missed and for stdio).
+- Study cost gate uses real Opus pricing ($5/$25; was $15/$75 — studies were
+  stopping at a third of their budget). GUI translation runs Haiku.
+- Flask GUI runs with debug=False. Edited Telegram messages are handled
+  (edited questions re-ask; they no longer crash the handler).
 
 ## Environment
 
@@ -250,13 +293,19 @@ Get-Content C:\Users\Owner\research-pipeline\data\_routing_log.jsonl | ConvertFr
 # Find duplicate note PDFs (byte-identical); --apply quarantines extras
 cd ~/research-pipeline; python main.py dedup-notes            # dry-run + manifest
 cd ~/research-pipeline; python main.py dedup-notes --apply    # refuses while worker has a running job
+
+# Repair KB chunks stored without embeddings (resumable; --dry-run to count)
+cd ~/research-pipeline; python main.py kb-embed-backfill --dry-run
+cd ~/research-pipeline; python main.py kb-embed-backfill
 ```
 
-## KB index (full corpus, 2026-06-11)
+## KB index (full corpus)
 
 The KB covers the entire data tree — research notes AND all IR/filings/MOPS
-PDFs (~19.4k documents, ~467k chunks, OpenAI text-embedding-3-small). The
-one-time backfill ran 2026-06-11 (~$8 embeddings). Reindex cost control:
+PDFs (~36.6k documents, ~952k chunks as of 2026-07-02, OpenAI
+text-embedding-3-small). The original backfill ran 2026-06-11; a second
+embedding backfill (`kb-embed-backfill`) ran 2026-07-02 to repair the 461k
+chunks left unembedded by the June 14-16 reindex wave. Reindex cost control:
 - `index_file` skips unchanged files via a mtime+size stamp in
   `documents.metadata_json` — no text extraction for unchanged files.
 - Failed/empty extractions (corrupt or image-only PDFs, ~130 files) are
