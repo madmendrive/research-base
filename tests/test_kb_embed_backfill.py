@@ -56,7 +56,7 @@ class TestEmbeddingErrorPersistence(unittest.TestCase):
         self.assertIn("embedding_error", meta)
         self.assertIn("simulated embedding outage", meta["embedding_error"])
         nulls = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL"
         ).fetchone()[0]
         self.assertGreater(nulls, 0)
         conn.close()
@@ -75,9 +75,8 @@ class TestEmbeddingErrorPersistence(unittest.TestCase):
         self.assertEqual(stats["documents_repaired"], 1)
 
         conn = kb.connect(self.db)
-        # Backfill writes float32 BLOBs now; embedding_json stays NULL.
         nulls = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL"
         ).fetchone()[0]
         self.assertEqual(nulls, 0)
         meta = json.loads(conn.execute(
