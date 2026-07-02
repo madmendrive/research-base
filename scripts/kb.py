@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import logging
 import math
 import os
 import re
@@ -31,6 +32,8 @@ DEFAULT_SEARCH_LIMIT = 8
 # Python over the full 467k-chunk table takes minutes per query.
 VECTOR_POOL_FTS_CANDIDATES = 400
 VECTOR_POOL_RECENT_CHUNKS = 2000
+
+log = logging.getLogger("kb")
 
 
 def _now() -> str:
@@ -359,7 +362,8 @@ class EmbeddingClient:
         out: list[list[float] | None] = []
         batch_size = 64
         for i in range(0, len(texts), batch_size):
-            batch = [t.replace("\n", " ")[:28000] for t in texts[i:i + batch_size]]
+            # The embeddings API rejects empty strings.
+            batch = [t.replace("\n", " ")[:28000] or " " for t in texts[i:i + batch_size]]
             resp = self._client.embeddings.create(
                 model=self.model,
                 input=batch,
@@ -495,7 +499,19 @@ def index_text(
             embeddings = emb.embed_texts(chunks)
             model = emb.model if emb.enabled else None
         except Exception as e:
+            # Persist the marker on the document row: the mtime+size stamp
+            # makes future reindexes skip this file as "unchanged", so without
+            # a durable record the chunks would stay unembedded forever.
             metadata = {**metadata, "embedding_error": str(e)}
+            conn.execute(
+                "UPDATE documents SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                (_json(metadata), now, doc_id),
+            )
+            log.warning(
+                "embedding failed for %s: %s — chunks stored unembedded; "
+                "run `python main.py kb-embed-backfill` to repair",
+                source_uri, e,
+            )
             embeddings = [None for _ in chunks]
     else:
         embeddings = [None for _ in chunks]
@@ -759,8 +775,97 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
                         except OSError:
                             stats["errors"].append({"path": str(path), "error": f"{type(e).__name__}: {e}"})
     finally:
+        # Surface embedding gaps in every reindex run so a failure like the
+        # 2026-06-14..16 wave (458k chunks indexed with no embeddings) is
+        # visible within a day instead of never.
+        try:
+            stats["unembedded_chunks"] = conn.execute(
+                "SELECT COUNT(*) FROM chunks WHERE embedding_json IS NULL"
+            ).fetchone()[0]
+        except sqlite3.Error:
+            pass
         conn.close()
         _save_failure_stamps(failure_stamps)
+    return stats
+
+
+def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> dict:
+    """Embed chunks that were stored without embeddings (embedding_json IS NULL).
+
+    Resumable by construction: each batch is committed before the next is
+    fetched, and the WHERE clause only ever sees still-unembedded chunks. On an
+    API failure it stops cleanly (re-run later) rather than looping. Clears the
+    documents' embedding_error markers once their chunks are repaired.
+    """
+    conn = connect()
+    stats = {"unembedded": 0, "embedded": 0, "documents_repaired": 0}
+    try:
+        stats["unembedded"] = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE embedding_json IS NULL"
+        ).fetchone()[0]
+        if dry_run or not stats["unembedded"]:
+            return stats
+        emb = EmbeddingClient()
+        if not emb.enabled:
+            raise RuntimeError("embedding provider is disabled (KB_EMBEDDING_PROVIDER)")
+        touched_docs: set[int] = set()
+        while True:
+            take = batch if not limit else min(batch, limit - stats["embedded"])
+            if take <= 0:
+                break
+            rows = conn.execute(
+                "SELECT id, document_id, text FROM chunks "
+                "WHERE embedding_json IS NULL ORDER BY id LIMIT ?",
+                (take,),
+            ).fetchall()
+            if not rows:
+                break
+            try:
+                vectors = emb.embed_texts([r["text"] for r in rows])
+            except Exception as e:
+                stats["error"] = f"{type(e).__name__}: {e}"
+                log.error("embed backfill stopped after %d chunks: %s",
+                          stats["embedded"], e)
+                break
+            conn.executemany(
+                "UPDATE chunks SET embedding_model = ?, embedding_json = ? WHERE id = ?",
+                [
+                    (emb.model, json.dumps(vec), row["id"])
+                    for row, vec in zip(rows, vectors)
+                    if vec is not None
+                ],
+            )
+            conn.commit()
+            stats["embedded"] += len(rows)
+            touched_docs.update(int(r["document_id"]) for r in rows)
+            if stats["embedded"] % 10240 < batch:
+                print(f"  embed backfill: {stats['embedded']}/{stats['unembedded']} chunks")
+        # Clear error markers on documents whose chunks are now all embedded.
+        now = _now()
+        for doc_id in touched_docs:
+            remaining = conn.execute(
+                "SELECT 1 FROM chunks WHERE document_id = ? AND embedding_json IS NULL LIMIT 1",
+                (doc_id,),
+            ).fetchone()
+            if remaining:
+                continue
+            row = conn.execute(
+                "SELECT metadata_json FROM documents WHERE id = ?", (doc_id,)
+            ).fetchone()
+            meta = _loads(row["metadata_json"], {}) if row else {}
+            if "embedding_error" in meta:
+                meta.pop("embedding_error", None)
+                conn.execute(
+                    "UPDATE documents SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                    (_json(meta), now, doc_id),
+                )
+                stats["documents_repaired"] += 1
+        conn.commit()
+        stats["remaining"] = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE embedding_json IS NULL"
+        ).fetchone()[0]
+    finally:
+        conn.close()
     return stats
 
 

@@ -760,6 +760,19 @@ def kb_reindex_cmd(source, force, limit, no_embed, parallel):
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+@cli.command("kb-embed-backfill")
+@click.option("--limit", default=0, type=int,
+              help="Embed at most N chunks this run (0 = all unembedded).")
+@click.option("--batch", default=512, show_default=True, type=int,
+              help="Chunks per DB transaction (embeddings are sub-batched 64/request).")
+@click.option("--dry-run", is_flag=True, help="Only report how many chunks lack embeddings.")
+def kb_embed_backfill_cmd(limit, batch, dry_run):
+    """Embed KB chunks that were stored without embeddings (repairs silent gaps)."""
+    from scripts.kb import embed_backfill
+    stats = embed_backfill(limit=limit, batch=batch, dry_run=dry_run)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
 @cli.command("reingest-clipped")
 @click.option("--folder", default=None, help="Inbox folder to scan (default: research-inbox).")
 @click.option("--threshold", default=30000, show_default=True, type=int,
