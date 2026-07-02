@@ -136,6 +136,13 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
         """
     )
+    # Additive migration: float32 BLOB embeddings replace JSON text (~31KB ->
+    # ~6KB per vector; ~14GB smaller DB) and make full-corpus numpy scans
+    # possible. embedding_json stays until the migration is verified, then a
+    # separate maintenance step drops it.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+    if "embedding" not in cols:
+        conn.execute("ALTER TABLE chunks ADD COLUMN embedding BLOB")
     conn.commit()
 
 
@@ -377,6 +384,33 @@ class EmbeddingClient:
         return out
 
 
+def vec_to_blob(vec) -> bytes:
+    """Encode an embedding as little-endian float32 bytes (~5x smaller than
+    JSON text; zero-copy readable by numpy)."""
+    import numpy as np
+
+    return np.asarray(vec, dtype="<f4").tobytes()
+
+
+def blob_to_vec(blob: bytes):
+    import numpy as np
+
+    return np.frombuffer(blob, dtype="<f4")
+
+
+def _row_embedding(row):
+    """Embedding from a chunks row: BLOB preferred, JSON fallback (transition)."""
+    try:
+        blob = row["embedding"]
+    except (IndexError, KeyError):
+        blob = None
+    if blob is not None:
+        return blob_to_vec(blob)
+    if row["embedding_json"]:
+        return json.loads(row["embedding_json"])
+    return None
+
+
 def _vector_dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 
@@ -532,7 +566,7 @@ def index_text(
             """
             INSERT INTO chunks
                 (document_id, chunk_index, text, token_estimate, embedding_model,
-                 embedding_json, created_at)
+                 embedding, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -541,7 +575,7 @@ def index_text(
                 chunk,
                 _estimate_tokens(chunk),
                 model if vector is not None else None,
-                json.dumps(vector) if vector is not None else None,
+                vec_to_blob(vector) if vector is not None else None,
                 now,
             ),
         )
@@ -783,7 +817,7 @@ def reindex_source(source: str = "all", force: bool = False, limit: int = 0,
         # visible within a day instead of never.
         try:
             stats["unembedded_chunks"] = conn.execute(
-                "SELECT COUNT(*) FROM chunks WHERE embedding_json IS NULL"
+                "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
             ).fetchone()[0]
         except sqlite3.Error:
             pass
@@ -804,7 +838,7 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
     stats = {"unembedded": 0, "embedded": 0, "documents_repaired": 0}
     try:
         stats["unembedded"] = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE embedding_json IS NULL"
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
         ).fetchone()[0]
         if dry_run or not stats["unembedded"]:
             return stats
@@ -818,7 +852,7 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
                 break
             rows = conn.execute(
                 "SELECT id, document_id, text FROM chunks "
-                "WHERE embedding_json IS NULL ORDER BY id LIMIT ?",
+                "WHERE embedding IS NULL AND embedding_json IS NULL ORDER BY id LIMIT ?",
                 (take,),
             ).fetchall()
             if not rows:
@@ -831,9 +865,9 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
                           stats["embedded"], e)
                 break
             conn.executemany(
-                "UPDATE chunks SET embedding_model = ?, embedding_json = ? WHERE id = ?",
+                "UPDATE chunks SET embedding_model = ?, embedding = ? WHERE id = ?",
                 [
-                    (emb.model, json.dumps(vec), row["id"])
+                    (emb.model, vec_to_blob(vec), row["id"])
                     for row, vec in zip(rows, vectors)
                     if vec is not None
                 ],
@@ -847,7 +881,8 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
         now = _now()
         for doc_id in touched_docs:
             remaining = conn.execute(
-                "SELECT 1 FROM chunks WHERE document_id = ? AND embedding_json IS NULL LIMIT 1",
+                "SELECT 1 FROM chunks WHERE document_id = ? "
+                "AND embedding IS NULL AND embedding_json IS NULL LIMIT 1",
                 (doc_id,),
             ).fetchone()
             if remaining:
@@ -865,11 +900,169 @@ def embed_backfill(limit: int = 0, batch: int = 512, dry_run: bool = False) -> d
                 stats["documents_repaired"] += 1
         conn.commit()
         stats["remaining"] = conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE embedding_json IS NULL"
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NULL"
         ).fetchone()[0]
     finally:
         conn.close()
     return stats
+
+
+def embed_migrate(batch: int = 2000, limit: int = 0) -> dict:
+    """Convert legacy JSON-text embeddings to float32 BLOBs.
+
+    Idempotent and resumable: each batch commits, and the WHERE clause only
+    sees still-unconverted rows, so it can run repeatedly (including as a
+    nightly catch-up) and safely alongside live workers. embedding_json is
+    left in place; dropping it is a separate maintenance step.
+    """
+    conn = connect()
+    stats = {"pending": 0, "converted": 0}
+    try:
+        stats["pending"] = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NOT NULL"
+        ).fetchone()[0]
+        while stats["pending"] > stats["converted"]:
+            take = batch if not limit else min(batch, limit - stats["converted"])
+            if take <= 0:
+                break
+            rows = conn.execute(
+                "SELECT id, embedding_json FROM chunks "
+                "WHERE embedding IS NULL AND embedding_json IS NOT NULL "
+                "ORDER BY id LIMIT ?",
+                (take,),
+            ).fetchall()
+            if not rows:
+                break
+            conn.executemany(
+                "UPDATE chunks SET embedding = ? WHERE id = ?",
+                [(vec_to_blob(json.loads(r["embedding_json"])), r["id"]) for r in rows],
+            )
+            conn.commit()
+            stats["converted"] += len(rows)
+            if stats["converted"] % 50000 < batch:
+                print(f"  embed migrate: {stats['converted']}/{stats['pending']}")
+        stats["remaining"] = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE embedding IS NULL AND embedding_json IS NOT NULL"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Sidecar vector index — full-corpus semantic scan
+#
+# A memory-mapped float32 matrix of every embedded chunk removes the recall
+# ceiling of the bounded candidate pool (vector scoring used to see only FTS
+# candidates + the 2,000 newest chunks). Versioned directories + an atomically
+# replaced pointer file sidestep Windows file locking: readers keep old maps
+# open while a rebuild publishes a new version.
+# ---------------------------------------------------------------------------
+
+VEC_INDEX_DIR = KB_DIR / "vec_index"
+VEC_POINTER = VEC_INDEX_DIR / "current.json"
+
+_vec_cache: dict = {}
+
+
+def build_vector_index(batch: int = 5000) -> dict:
+    """(Re)build the sidecar from every embedded chunk. Rows are L2-normalized
+    at build time so a dot product is a true cosine regardless of source."""
+    import numpy as np
+
+    conn = connect()
+    try:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM chunks "
+            "WHERE embedding IS NOT NULL OR embedding_json IS NOT NULL"
+        ).fetchone()[0]
+        if not total:
+            return {"count": 0, "built": False}
+        import time as _time
+
+        version = str(_time.time_ns())  # unique even for back-to-back rebuilds
+        out_dir = VEC_INDEX_DIR / version
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        first = conn.execute(
+            "SELECT embedding, embedding_json FROM chunks "
+            "WHERE embedding IS NOT NULL OR embedding_json IS NOT NULL LIMIT 1"
+        ).fetchone()
+        dim = len(_row_embedding(first))
+
+        vecs = np.lib.format.open_memmap(
+            out_dir / "vectors.npy", mode="w+", dtype="<f4", shape=(total, dim))
+        ids = np.zeros(total, dtype="<i8")
+        pos, last_id, max_id = 0, 0, 0
+        while pos < total:
+            rows = conn.execute(
+                "SELECT id, embedding, embedding_json FROM chunks "
+                "WHERE id > ? AND (embedding IS NOT NULL OR embedding_json IS NOT NULL) "
+                "ORDER BY id LIMIT ?",
+                (last_id, batch),
+            ).fetchall()
+            if not rows:
+                break
+            for row in rows:
+                vec = np.asarray(_row_embedding(row), dtype="<f4")
+                if vec.shape[0] != dim:
+                    continue  # mixed-model leftovers can't share the matrix
+                norm = float(np.linalg.norm(vec)) or 1.0
+                vecs[pos] = vec / norm
+                ids[pos] = int(row["id"])
+                pos += 1
+                if pos >= total:
+                    break
+            last_id = int(rows[-1]["id"])
+            max_id = max(max_id, last_id)
+        vecs.flush()
+        del vecs
+        np.save(out_dir / "ids.npy", ids[:pos])
+
+        meta = {"dir": version, "count": pos, "dim": dim,
+                "max_chunk_id": max_id, "built_at": _now()}
+        tmp = VEC_POINTER.with_suffix(".tmp")
+        tmp.write_text(json.dumps(meta), encoding="utf-8")
+        tmp.replace(VEC_POINTER)
+        # Best-effort cleanup of superseded versions (Windows may hold maps
+        # open in worker processes; failures are retried on later rebuilds).
+        for old in VEC_INDEX_DIR.iterdir():
+            if old.is_dir() and old.name != version:
+                try:
+                    for f in old.iterdir():
+                        f.unlink()
+                    old.rmdir()
+                except OSError:
+                    pass
+        meta["built"] = True
+        return meta
+    finally:
+        conn.close()
+
+
+def _load_vector_index():
+    """(ids, vectors, meta) via module cache, or None when absent/unreadable."""
+    import numpy as np
+
+    try:
+        raw = VEC_POINTER.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    cached = _vec_cache.get("pointer_raw")
+    if cached == raw and "index" in _vec_cache:
+        return _vec_cache["index"]
+    try:
+        meta = json.loads(raw)
+        base = VEC_INDEX_DIR / meta["dir"]
+        ids = np.load(base / "ids.npy")
+        vecs = np.load(base / "vectors.npy", mmap_mode="r")
+    except Exception:
+        log.warning("vector index unreadable; falling back to candidate pool",
+                    exc_info=True)
+        return None
+    _vec_cache["pointer_raw"] = raw
+    _vec_cache["index"] = (ids, vecs, meta)
+    return _vec_cache["index"]
 
 
 def _fts_query(query: str) -> str:
@@ -937,75 +1130,150 @@ def search(
             results[int(row["chunk_id"])] = _row_to_result(
                 row, 1.0 / (RRF_K + pos), "fts")
 
-        vector_rows = []
+        vector_ranked: list = []
         if use_vector:
-            # Vector-score a bounded candidate pool, never the whole table.
-            # The previous full scan json-parsed every stored embedding per
-            # search — fine at 30k chunks, minutes of pure CPU at 467k after
-            # the 2026-06 full-corpus backfill. Pool = a wide FTS candidate
-            # set plus the most recent chunks, so fresh notes still surface
-            # when the query shares no keywords with them.
-            pool_ids: list[int] = [int(r["chunk_id"]) for r in conn.execute(
-                f"""
-                SELECT chunks_fts.chunk_id AS chunk_id
-                FROM chunks_fts
-                JOIN chunks c ON c.id = chunks_fts.chunk_id
-                JOIN documents d ON d.id = c.document_id
-                WHERE chunks_fts MATCH ? {where_sql}
-                ORDER BY bm25(chunks_fts)
-                LIMIT ?
-                """,
-                [fts, *params, VECTOR_POOL_FTS_CANDIDATES],
-            ).fetchall()]
-            pool_ids += [int(r["chunk_id"]) for r in conn.execute(
-                f"""
-                SELECT c.id AS chunk_id
-                FROM chunks c
-                JOIN documents d ON d.id = c.document_id
-                WHERE c.embedding_json IS NOT NULL {where_sql}
-                ORDER BY c.id DESC
-                LIMIT ?
-                """,
-                [*params, VECTOR_POOL_RECENT_CHUNKS],
-            ).fetchall()]
-            pool_ids = list(dict.fromkeys(pool_ids))
-            if pool_ids:
-                placeholders = ",".join("?" for _ in pool_ids)
-                vector_rows = conn.execute(
-                    f"""
-                    SELECT c.id AS chunk_id, c.text, c.embedding_json, d.id AS document_id,
-                           d.title, d.source_type, d.source_path, d.url, d.entities_json,
-                           d.metadata_json
-                    FROM chunks c
-                    JOIN documents d ON d.id = c.document_id
-                    WHERE c.embedding_json IS NOT NULL AND c.id IN ({placeholders})
-                    """,
-                    pool_ids,
-                ).fetchall()
-        if vector_rows:
             try:
                 q_vec = EmbeddingClient().embed_texts([query])[0]
             except Exception:
                 q_vec = None
             if q_vec is not None:
-                scored = []
-                for row in vector_rows:
-                    vec = json.loads(row["embedding_json"])
-                    scored.append((_cosine(q_vec, vec), row))
-                top = sorted(scored, key=lambda x: x[0], reverse=True)[: max(limit * 3, limit)]
-                for pos, (cos, row) in enumerate(top, start=1):
-                    chunk_id = int(row["chunk_id"])
-                    contribution = 1.0 / (RRF_K + pos)
-                    if chunk_id in results:
-                        results[chunk_id]["score"] += contribution
-                        results[chunk_id]["match"] = "hybrid"
-                    else:
-                        results[chunk_id] = _row_to_result(row, contribution, "vector")
+                top_n = max(limit * 3, limit)
+                if sources == "all":
+                    # Full-corpus scan over the memory-mapped sidecar: every
+                    # embedded chunk is semantically reachable, not just FTS
+                    # candidates + the newest 2,000 (the old recall ceiling).
+                    vector_ranked = _vector_full_scan(conn, q_vec, top_n) or []
+                if not vector_ranked:
+                    # Bounded candidate pool: sidecar missing/stale-dim, or a
+                    # source-filtered search (the sidecar carries no source
+                    # metadata, so filtered queries stay on this path).
+                    vector_ranked = _vector_pool_scan(
+                        conn, q_vec, fts, where_sql, params, top_n)
+        for pos, row in enumerate(vector_ranked, start=1):
+            chunk_id = int(row["chunk_id"])
+            contribution = 1.0 / (RRF_K + pos)
+            if chunk_id in results:
+                results[chunk_id]["score"] += contribution
+                results[chunk_id]["match"] = "hybrid"
+            else:
+                results[chunk_id] = _row_to_result(row, contribution, "vector")
 
         ordered = sorted(results.values(), key=lambda r: r["score"], reverse=True)
         return ordered[:limit]
     finally:
         conn.close()
+
+
+_CHUNK_RESULT_SELECT = """
+    SELECT c.id AS chunk_id, c.text, d.id AS document_id,
+           d.title, d.source_type, d.source_path, d.url, d.entities_json,
+           d.metadata_json
+    FROM chunks c
+    JOIN documents d ON d.id = c.document_id
+"""
+
+
+def _vector_full_scan(conn, q_vec, top_n: int):
+    """Rank the whole corpus against the query via the sidecar matrix, plus a
+    live tail for chunks indexed after the last sidecar build. Returns result
+    rows in rank order, or None when the sidecar can't serve the query."""
+    import numpy as np
+
+    loaded = _load_vector_index()
+    if not loaded:
+        return None
+    ids, vecs, meta = loaded
+    q = np.asarray(q_vec, dtype="<f4")
+    if not len(ids) or q.shape[0] != int(meta["dim"]):
+        return None
+    q = q / (float(np.linalg.norm(q)) or 1.0)
+
+    scores = vecs @ q  # rows are L2-normalized at build time -> cosine
+    k = min(top_n * 2, len(scores))  # headroom for since-deleted chunks
+    top_idx = np.argpartition(scores, -k)[-k:]
+    top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
+    ranked: list[tuple[float, int]] = [
+        (float(scores[i]), int(ids[i])) for i in top_idx
+    ]
+
+    # Chunks newer than the sidecar build (last night's ingests) get scored
+    # live so freshness never regresses vs the old recent-chunks pool.
+    tail = conn.execute(
+        "SELECT id, embedding, embedding_json FROM chunks "
+        "WHERE id > ? AND (embedding IS NOT NULL OR embedding_json IS NOT NULL) "
+        "ORDER BY id DESC LIMIT ?",
+        (int(meta["max_chunk_id"]), VECTOR_POOL_RECENT_CHUNKS),
+    ).fetchall()
+    for row in tail:
+        vec = np.asarray(_row_embedding(row), dtype="<f4")
+        if vec.shape[0] != q.shape[0]:
+            continue
+        norm = float(np.linalg.norm(vec)) or 1.0
+        ranked.append((float(vec @ q) / norm, int(row["id"])))
+
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    ordered_ids: list[int] = []
+    for _score, cid in ranked:
+        if cid not in ordered_ids:
+            ordered_ids.append(cid)
+        if len(ordered_ids) >= top_n * 2:
+            break
+    if not ordered_ids:
+        return []
+    placeholders = ",".join("?" for _ in ordered_ids)
+    fetched = {int(r["chunk_id"]): r for r in conn.execute(
+        f"{_CHUNK_RESULT_SELECT} WHERE c.id IN ({placeholders})", ordered_ids
+    ).fetchall()}
+    # Preserve rank order; silently drop ids deleted since the build.
+    return [fetched[cid] for cid in ordered_ids if cid in fetched][:top_n]
+
+
+def _vector_pool_scan(conn, q_vec, fts: str, where_sql: str, params: list,
+                      top_n: int) -> list:
+    """Legacy bounded pool (FTS candidates + newest chunks), used for
+    source-filtered searches and as the fallback when no sidecar exists."""
+    pool_ids: list[int] = [int(r["chunk_id"]) for r in conn.execute(
+        f"""
+        SELECT chunks_fts.chunk_id AS chunk_id
+        FROM chunks_fts
+        JOIN chunks c ON c.id = chunks_fts.chunk_id
+        JOIN documents d ON d.id = c.document_id
+        WHERE chunks_fts MATCH ? {where_sql}
+        ORDER BY bm25(chunks_fts)
+        LIMIT ?
+        """,
+        [fts, *params, VECTOR_POOL_FTS_CANDIDATES],
+    ).fetchall()]
+    pool_ids += [int(r["chunk_id"]) for r in conn.execute(
+        f"""
+        SELECT c.id AS chunk_id
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE (c.embedding IS NOT NULL OR c.embedding_json IS NOT NULL) {where_sql}
+        ORDER BY c.id DESC
+        LIMIT ?
+        """,
+        [*params, VECTOR_POOL_RECENT_CHUNKS],
+    ).fetchall()]
+    pool_ids = list(dict.fromkeys(pool_ids))
+    if not pool_ids:
+        return []
+    placeholders = ",".join("?" for _ in pool_ids)
+    rows = conn.execute(
+        f"""
+        SELECT c.id AS chunk_id, c.text, c.embedding, c.embedding_json,
+               d.id AS document_id, d.title, d.source_type, d.source_path,
+               d.url, d.entities_json, d.metadata_json
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE (c.embedding IS NOT NULL OR c.embedding_json IS NOT NULL)
+          AND c.id IN ({placeholders})
+        """,
+        pool_ids,
+    ).fetchall()
+    scored = [(_cosine(q_vec, _row_embedding(row)), row) for row in rows]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [row for _score, row in scored[:top_n]]
 
 
 def _row_to_result(row: sqlite3.Row, score: float, match: str) -> dict:
