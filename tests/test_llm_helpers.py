@@ -179,6 +179,18 @@ class CallApiTests(unittest.TestCase):
         self.assertEqual(len(client.stream_calls), 2)
 
     @mock.patch("time.sleep")
+    def test_rate_limit_error_is_transient(self, _sleep):
+        # Regression: 429s used to raise immediately, aborting the agentic
+        # loop into the expensive full-re-synthesis fallback chain.
+        client = FakeClient([], [
+            RuntimeError("rate_limit_error: Number of requests has exceeded your rate limit (429)"),
+            self._ok_stream("recovered"),
+        ])
+        result = research._call_api(client, [{"role": "user", "content": "q"}])
+        self.assertEqual(result, "recovered")
+        self.assertEqual(len(client.stream_calls), 2)
+
+    @mock.patch("time.sleep")
     def test_truncated_stream_escalates_max_tokens(self, _sleep):
         client = FakeClient([], [
             FakeStream(["trunc"], _response(stop_reason="max_tokens")),

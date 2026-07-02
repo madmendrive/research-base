@@ -233,10 +233,15 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
             return "".join(chunks)
         except Exception as e:
             err_str = str(e).lower()
+            # 429 rate limits are transient too: a sustained rate-limit window
+            # used to abort the agentic loop straight into the expensive
+            # fallback chain (full re-synthesis, history dropped).
             transient = ("overloaded" in err_str or "connection" in err_str
-                         or "529" in err_str or "disconnected" in err_str)
+                         or "529" in err_str or "disconnected" in err_str
+                         or "rate_limit" in err_str or "rate limit" in err_str
+                         or "429" in err_str)
             if transient and attempt < 2:
-                wait = 5 * (attempt + 1)
+                wait = 15 * (attempt + 1) if "rate" in err_str or "429" in err_str else 5 * (attempt + 1)
                 print(f"  API transient error, retrying in {wait}s...")
                 time.sleep(wait)
                 continue
