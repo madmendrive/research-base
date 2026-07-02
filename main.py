@@ -1033,7 +1033,9 @@ def gui(port):
     url = f"http://localhost:{port}"
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     click.echo(f"Starting GUI at {url}")
-    app.run(debug=True, port=port, use_reloader=False)
+    # debug=True enables the Werkzeug interactive debugger — an RCE surface
+    # the moment this binds beyond loopback (the plan is Tailscale exposure).
+    app.run(debug=False, port=port, use_reloader=False)
 
 
 if __name__ == "__main__":
