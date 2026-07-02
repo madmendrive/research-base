@@ -740,6 +740,23 @@ def dedup_notes_cmd(apply_changes):
     click.echo(f"Manifest: {outcome['manifest_path']}")
 
 
+@cli.command("kb-embed-migrate")
+@click.option("--batch", default=2000, show_default=True, type=int,
+              help="Rows converted per committed transaction.")
+@click.option("--limit", default=0, type=int, help="Convert at most N rows this run.")
+def kb_embed_migrate_cmd(batch, limit):
+    """Convert legacy JSON embeddings to float32 BLOBs (idempotent, resumable)."""
+    from scripts.kb import embed_migrate
+    click.echo(json.dumps(embed_migrate(batch=batch, limit=limit), indent=2))
+
+
+@cli.command("kb-vec-build")
+def kb_vec_build_cmd():
+    """(Re)build the memory-mapped sidecar vector index for full-corpus search."""
+    from scripts.kb import build_vector_index
+    click.echo(json.dumps(build_vector_index(), indent=2))
+
+
 @cli.command("kb-reindex")
 @click.option("--source", default="all", show_default=True,
               type=click.Choice(["all", "research", "ir", "filings", "claude", "email", "headlines", "company", "skills", "notes"],

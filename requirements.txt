@@ -17,3 +17,4 @@ tzdata
 python-telegram-bot[ext]>=21.0
 truststore
 watchdog
+numpy

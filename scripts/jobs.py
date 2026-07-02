@@ -499,6 +499,17 @@ def _process_job(job: dict) -> str:
             force=bool(payload.get("force", False)),
             limit=int(payload.get("limit", 0) or 0),
         )
+        # Vector-index upkeep rides the nightly reindex: convert any legacy
+        # JSON embeddings that appeared since the migration (no-op once all
+        # writers are on BLOBs), then rebuild the sidecar so the full-corpus
+        # scan includes tonight's chunks. Best-effort: a failure here must
+        # not fail the reindex itself.
+        try:
+            stats["embed_migrate"] = kb.embed_migrate()
+            stats["vector_index"] = kb.build_vector_index()
+        except Exception as e:
+            stats["vector_index_error"] = f"{type(e).__name__}: {e}"
+            print(f"vector index upkeep failed (search falls back to pool): {e}")
         if payload.get("notify", False):
             telegram_send(f"KB reindex complete\n{json.dumps(stats, indent=2)}")
         return json.dumps(stats)
