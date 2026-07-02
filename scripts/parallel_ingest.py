@@ -356,7 +356,11 @@ def _destination_for(triage: dict[str, Any], source: Path) -> tuple[Path, str]:
     if primary_type == "thematic":
         return DATA_DIR / "Thematic" / subject / "notes" / dest_name, "research"
     if primary_type in {"macro", "news_article"}:
-        author = subject if primary_type == "macro" else "News Article"
+        if primary_type == "macro":
+            from scripts.authors import canonicalize_author
+            author = canonicalize_author(subject)
+        else:
+            author = "News Article"
         return DATA_DIR / category / "authors" / kb.safe_dirname(author) / "notes" / dest_name, "research"
     return PENDING_REVIEW_DIR / dest_name, "pending_review"
 

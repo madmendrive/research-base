@@ -52,27 +52,35 @@ def enqueue_job(kind: str, payload: dict | None = None, dedupe_key: str | None =
     dedupe_key = dedupe_key or f"{kind}:{kb.text_hash(payload_json)[:24]}"
     now = _now()
     available = (datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)).isoformat(timespec="seconds")
-    conn = kb.connect()
-    _init_jobs(conn)
-    try:
-        cur = conn.execute(
-            """
-            INSERT OR IGNORE INTO jobs
-                (kind, payload_json, dedupe_key, status, attempts, max_attempts,
-                 available_at, created_at, updated_at)
-            VALUES (?, ?, ?, 'queued', 0, ?, ?, ?, ?)
-            """,
-            (kind, payload_json, dedupe_key, max_attempts, available, now, now),
-        )
-        if cur.rowcount == 0:
-            row = conn.execute("SELECT id FROM jobs WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
-            job_id = int(row["id"]) if row else 0
-        else:
-            job_id = int(cur.lastrowid)
-        conn.commit()
-        return job_id
-    finally:
-        conn.close()
+
+    def _write() -> int:
+        # Fresh connection each attempt: another process (CLI reindex, backfill,
+        # or an in-flight migration) can hold the write lock past our busy
+        # timeout. Retried via _retry_locked so a transient lock can't crash the
+        # caller — this enqueue is what took the heartbeat down on 2026-06-29.
+        conn = kb.connect()
+        _init_jobs(conn)
+        try:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO jobs
+                    (kind, payload_json, dedupe_key, status, attempts, max_attempts,
+                     available_at, created_at, updated_at)
+                VALUES (?, ?, ?, 'queued', 0, ?, ?, ?, ?)
+                """,
+                (kind, payload_json, dedupe_key, max_attempts, available, now, now),
+            )
+            if cur.rowcount == 0:
+                row = conn.execute("SELECT id FROM jobs WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
+                job_id = int(row["id"]) if row else 0
+            else:
+                job_id = int(cur.lastrowid)
+            conn.commit()
+            return job_id
+        finally:
+            conn.close()
+
+    return _retry_locked(_write)
 
 
 def job_for_dedupe_key(dedupe_key: str) -> dict | None:
@@ -250,7 +258,9 @@ def _process_job(job: dict) -> str:
         scan_id = payload.get("scan_id")
         if scan_id:
             # Collect into the folder-scan digest; the last file triggers the send.
-            from scripts.folder_scan import append_scan_item, send_scan_digest, LATEST_SCAN_PATH
+            from scripts.folder_scan import (
+                append_scan_item, send_scan_digest, format_scan_digest, LATEST_SCAN_PATH,
+            )
 
             _extraction = result.get("extraction_json") or {}
             _metadata = _extraction.get("metadata") or {}
@@ -267,7 +277,12 @@ def _process_job(job: dict) -> str:
             count, total = append_scan_item(scan_id, _item)
             if total > 0 and count >= total:
                 _record = json.loads(LATEST_SCAN_PATH.read_text(encoding="utf-8"))
-                send_scan_digest(_record.get("items") or [])
+                _items = _record.get("items") or []
+                if _record.get("combined"):
+                    from scripts.combined_digest import submit_part
+                    submit_part("inbox", format_scan_digest(_items))
+                else:
+                    send_scan_digest(_items)
         elif payload.get("notify", True):
             telegram_send_markdownish_html(research_readthrough(result, path.name))
         return f"ingested {path} -> {committed.get('stored_path')}"
@@ -277,7 +292,7 @@ def _process_job(job: dict) -> str:
 
         question = payload["question"]
         try:
-            answer = answer_question(question)
+            answer = answer_question(question, user_id=payload.get("user_id"))
         except Exception as e:
             telegram_send(
                 f"Analyst question failed: {type(e).__name__}: {e}\n\nQuestion: {question[:300]}"
@@ -375,7 +390,7 @@ def _process_job(job: dict) -> str:
             model = payload.get("model") or os.environ.get("STUDY_MODEL") or "gpt-5.5"
         else:
             model = (payload.get("model") or os.environ.get("STUDY_MODEL")
-                     or os.environ.get("ANALYST_MODEL") or "claude-opus-4-7")
+                     or os.environ.get("ANALYST_MODEL") or "claude-opus-4-8")
         config = StudyConfig(
             scope=payload.get("scope", "all"),
             since_hours=float(payload.get("since_hours", 30.0) or 0.0),
@@ -398,6 +413,7 @@ def _process_job(job: dict) -> str:
             payload.get("folder") or r"C:\Users\Owner\Downloads\research-inbox",
             notify=bool(payload.get("notify", True)),
             analyse=bool(payload.get("analyse", False)),
+            combined=bool(payload.get("combined", False)),
         )
         return json.dumps(stats)
 
@@ -408,6 +424,7 @@ def _process_job(job: dict) -> str:
             notify=bool(payload.get("notify", True)),
             analyse_attachments=bool(payload.get("analyse_attachments", False)),
             extract_research=bool(payload.get("extract_research", True)),
+            combined=bool(payload.get("combined", False)),
         )
         return json.dumps(stats)
 

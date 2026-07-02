@@ -156,12 +156,14 @@ def _auto_add_macro_authors(proposals: list[dict], category: str = "Macro") -> l
     """Create author folder under data/{category}/authors/. Returns list added."""
     if not proposals:
         return []
+    from scripts.authors import canonicalize_author
     base = DATA_DIR / category / "authors"
     added = []
     for p in proposals:
         name = (p.get("name") or "").strip()
         if not name or name in {"Unknown", "News Article"}:
             continue
+        name = canonicalize_author(name)
         author_dir = base / kb.safe_dirname(name)
         if author_dir.exists():
             continue

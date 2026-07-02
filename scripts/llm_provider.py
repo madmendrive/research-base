@@ -131,7 +131,7 @@ MAX_TOKENS_ESCALATION_CAP = 32_768
 
 
 def call_api(client, messages, max_tokens=8192, system=None, return_response=False,
-             model=None, default_model="claude-opus-4-7", tools=None,
+             model=None, default_model="claude-opus-4-8", tools=None,
              thinking=None, effort=None):
     """Anthropic call, always streamed, with transient retry and truncation
     escalation. Shared by research/macro/thematic and the analyst.
@@ -190,8 +190,10 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
             if final.stop_reason == "max_tokens" and attempt < 2:
                 _escalate()
                 continue
-            if final.stop_reason == "tool_use" and tools is not None:
-                # caller runs the tool loop and needs the tool_use blocks
+            if final.stop_reason in ("tool_use", "pause_turn") and tools is not None:
+                # caller runs the tool loop and needs the tool_use blocks.
+                # pause_turn = a server-side tool loop (e.g. web_search) hit its
+                # iteration cap; the caller re-sends to resume it.
                 return final
             if final.stop_reason not in ("end_turn", "stop_sequence"):
                 print(f"  stream stop_reason={final.stop_reason!r}, retrying...")

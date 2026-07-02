@@ -59,7 +59,7 @@ class StudyConfig:
     max_cost: float = 30.0
     limit: int = 0
     provider: str = "anthropic"
-    model: str = "claude-opus-4-7"
+    model: str = "claude-opus-4-8"
     max_output_tokens: int = 8000  # headroom for adaptive-thinking tokens + dossier
     timeout: float = 600.0  # xhigh adaptive thinking can run minutes per dossier
     force: bool = False

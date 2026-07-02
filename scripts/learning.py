@@ -150,6 +150,53 @@ def log_interaction(
             conn.close()
 
 
+def recent_interactions(
+    user_id: str | int | None,
+    *,
+    limit: int = 6,
+    max_age_minutes: int = 120,
+    conn: sqlite3.Connection | None = None,
+) -> list[tuple[str, str]]:
+    """Most-recent prior (question, answer) turns for a user, oldest-first,
+    bounded to the last `max_age_minutes`. Short-term multi-turn memory for the
+    analyst. Returns [] when user_id is None or limit <= 0."""
+    if user_id is None or limit <= 0:
+        return []
+    close_conn = conn is None
+    conn = conn or kb.connect()
+    init_schema(conn)
+    try:
+        rows = conn.execute(
+            """
+            SELECT question, answer, created_at FROM analyst_interactions
+            WHERE user_id = ? AND question IS NOT NULL AND answer IS NOT NULL
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (str(user_id), int(limit)),
+        ).fetchall()
+    finally:
+        if close_conn:
+            conn.close()
+
+    from datetime import datetime, timezone, timedelta
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    out: list[tuple[str, str]] = []
+    for row in rows:
+        try:
+            dt = datetime.fromisoformat(row["created_at"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt < cutoff:
+                continue
+        except (TypeError, ValueError):
+            pass  # unparseable timestamp -> keep (still bounded by LIMIT)
+        out.append((row["question"], row["answer"]))
+    out.reverse()  # chronological: oldest first
+    return out
+
+
 def latest_interaction_id(user_id: str | int | None, conn: sqlite3.Connection | None = None) -> int | None:
     if user_id is None:
         return None

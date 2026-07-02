@@ -47,9 +47,12 @@ Attribution discipline:
   the actual speaker. Prefer "JPM estimates...", "SemiAnalysis argues...",
   "the company guide implies...", or "your note assumed...".
 - The local KB / structured research memory is the PRIMARY basis for every
-  answer. Form your investment view from the KB first; treat live web context
-  as a secondary cross-check layered on top, never as the backbone of the
-  answer.
+  answer and the default source of truth — especially for estimates,
+  assumptions, statistics, price targets, and forecasts. Form your investment
+  view and source your numbers from the KB first; treat web search / live web
+  context as a secondary cross-check layered on top to confirm or
+  freshness-check the KB, never as the backbone of the answer or the origin of
+  a headline number when the KB already has one.
 - When live web context is present, explicitly compare and contrast it against
   the KB: state what the KB establishes, then what the web adds, confirms,
   updates, or contradicts. Make the provenance of each claim obvious (KB
@@ -251,44 +254,112 @@ def _execute_analyst_tool(name: str, tool_input: dict) -> str:
     raise ValueError(f"unknown tool: {name!r}")
 
 
-def _call_claude_agentic(prompt: str, max_tokens: int = 8000) -> str:
-    """Analyst synthesis with pipeline tools (manual tool-use loop).
+ANALYST_WEB_TOOL_PROMPT = """
 
-    Anthropic-only — the OpenAI provider path and any failure fall back to the
-    plain single-shot synthesis so questions always get answered.
-    """
+Live web tool:
+You have a `web_search` tool, but the local KB and structured research memory are
+your source of truth — especially for estimates, assumptions, statistics, price
+targets, forecasts, and any specific number. Build the answer from the KB first.
+Reach for web_search only to (a) confirm or sanity-check a material KB figure,
+(b) fill a genuine gap the KB does not cover, or (c) test whether KB data looks
+stale or has been superseded by more recent reporting — not as your first move,
+and not for anything the supplied KB context already covers.
+
+When a web figure differs from the KB, keep the KB as the base case unless the web
+source is clearly more recent or more authoritative; in that case flag the delta
+and both dates explicitly. Attribute every web claim to its named source with the
+URL, and present web findings as confirmation / freshness checks layered on top of
+the KB — never as the backbone of the answer.
+"""
+
+
+def _agentic_enabled() -> bool:
+    """True when the Anthropic tool-use analyst path will run (not the OpenAI
+    fallback, tools not disabled)."""
     provider = os.environ.get("ANALYST_PROVIDER", "anthropic").lower().strip()
     disabled = os.environ.get("ANALYST_TOOLS", "1").strip().lower() in {"0", "false", "no"}
-    if provider in {"openai", "gpt"} or disabled:
+    return provider not in {"openai", "gpt"} and not disabled
+
+
+def _native_web_enabled() -> bool:
+    """Native mid-reasoning web_search tool (vs the pre-fetched web context)."""
+    return os.environ.get("ANALYST_WEB_NATIVE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _analyst_web_tool() -> dict:
+    # web_search_20260209 = dynamic-filtering variant; requires Opus 4.6+/Sonnet 4.6
+    # (Opus 4.8 supports it). Do NOT also declare code_execution alongside it.
+    return {
+        "type": os.environ.get("ANALYST_WEB_TOOL_TYPE", "web_search_20260209"),
+        "name": "web_search",
+        "max_uses": max(1, _env_int("ANALYST_WEB_MAX_USES", 5)),
+        "user_location": {
+            "type": "approximate",
+            "timezone": os.environ.get("ANALYST_WEB_TZ", "Asia/Hong_Kong"),
+        },
+    }
+
+
+def _history_messages(history) -> list[dict]:
+    """Turn prior (question, answer) pairs into alternating user/assistant
+    messages for short-term multi-turn memory. Prior answers are truncated so
+    a long thread doesn't blow the context budget."""
+    cap = max(200, _env_int("ANALYST_MEMORY_ANSWER_CHARS", 4000))
+    msgs: list[dict] = []
+    for q, a in history or []:
+        if not q:
+            continue
+        msgs.append({"role": "user", "content": str(q)})
+        msgs.append({"role": "assistant", "content": (str(a) or "(no answer recorded)")[:cap]})
+    return msgs
+
+
+def _call_claude_agentic(prompt: str, max_tokens: int = 8000, history=None) -> str:
+    """Analyst synthesis with pipeline tools + native web search (manual
+    tool-use loop).
+
+    Anthropic-only — the OpenAI provider path and any failure fall back to the
+    plain single-shot synthesis so questions always get answered. `history` is
+    a list of prior (question, answer) turns for multi-turn continuity.
+    """
+    if not _agentic_enabled():
         return _call_claude(prompt)
     from scripts.llm_provider import cached_system_block, call_api, get_client
 
-    model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-7")
+    model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-8")
     thinking, effort = _resolve_thinking("ANALYST")
     client = get_client(
         "anthropic",
         timeout=_env_float("ANALYST_TIMEOUT", 600.0),
         max_retries=_env_int("ANALYST_PROVIDER_MAX_RETRIES", 1),
     )
-    system = cached_system_block(ANALYST_SYSTEM_PROMPT + ANALYST_TOOLS_PROMPT)
-    messages = [{"role": "user", "content": prompt}]
+    native_web = _native_web_enabled()
+    tools = list(ANALYST_TOOLS) + ([_analyst_web_tool()] if native_web else [])
+    system_text = ANALYST_SYSTEM_PROMPT + ANALYST_TOOLS_PROMPT + (ANALYST_WEB_TOOL_PROMPT if native_web else "")
+    system = cached_system_block(system_text)
+    messages = _history_messages(history) + [{"role": "user", "content": prompt}]
     try:
-        for _ in range(6):
+        for _ in range(8):
             final = call_api(
                 client, messages, max_tokens=max_tokens, system=system,
-                model=model, tools=ANALYST_TOOLS, return_response=True,
+                model=model, tools=tools, return_response=True,
                 thinking=thinking, effort=effort,
             )
-            if final.stop_reason != "tool_use":
+            # pause_turn: the server-side tool loop (web_search) hit its
+            # iteration cap — re-send with the assistant turn appended to
+            # resume; do NOT add a user message.
+            if final.stop_reason not in ("tool_use", "pause_turn"):
                 text = "".join(b.text for b in final.content if b.type == "text").strip()
                 if text:
                     return text
                 break
             messages.append({"role": "assistant", "content": final.content})
+            if final.stop_reason == "pause_turn":
+                continue
             results = []
             for block in final.content:
                 if block.type != "tool_use":
-                    continue
+                    continue  # server_tool_use (web_search) blocks run server-side
                 try:
                     output = _execute_analyst_tool(block.name, dict(block.input or {}))
                     results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
@@ -298,6 +369,9 @@ def _call_claude_agentic(prompt: str, max_tokens: int = 8000) -> str:
                         "type": "tool_result", "tool_use_id": block.id,
                         "content": f"{type(e).__name__}: {e}", "is_error": True,
                     })
+            if not results:
+                # tool_use stop with only server-side tool blocks — let it continue
+                continue
             messages.append({"role": "user", "content": results})
         log.warning("agentic analyst loop ended without a final answer; falling back")
     except Exception:
@@ -419,12 +493,12 @@ def _call_anthropic(
 
 def _call_claude(prompt: str, max_tokens: int = 8000) -> str:
     provider = os.environ.get("ANALYST_PROVIDER", "anthropic").lower().strip()
-    model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-7")
+    model = os.environ.get("ANALYST_MODEL") or os.environ.get("KB_SYNTHESIS_MODEL", "claude-opus-4-8")
     try:
         if provider in {"openai", "gpt"}:
             return _call_openai(prompt, model or "gpt-5.5", max_tokens)
         thinking, effort = _resolve_thinking("ANALYST")
-        return _call_anthropic(prompt, model or "claude-opus-4-7", max_tokens,
+        return _call_anthropic(prompt, model or "claude-opus-4-8", max_tokens,
                                thinking=thinking, effort=effort)
     except Exception as primary_error:
         fallback_provider = os.environ.get("ANALYST_FALLBACK_PROVIDER", "openai").lower().strip()
@@ -471,7 +545,7 @@ def _call_structured_fast(prompt: str, max_tokens: int = 3000) -> str:
         configured_model = ""
     return _call_anthropic(
         prompt,
-        configured_model or os.environ.get("ANALYST_MODEL", "claude-opus-4-7"),
+        configured_model or os.environ.get("ANALYST_MODEL", "claude-opus-4-8"),
         max_tokens,
         timeout=timeout,
         max_retries=max_retries,
@@ -793,8 +867,12 @@ def _filter_single_headline_context(results: list[dict], selected_title: str) ->
     return filtered
 
 
-def answer_question(question: str, sources: str = "all", limit: int = 14) -> str:
-    """Answer a query as an analyst, not as a cited retrieval assistant."""
+def answer_question(question: str, sources: str = "all", limit: int = 14, user_id=None) -> str:
+    """Answer a query as an analyst, not as a cited retrieval assistant.
+
+    user_id: when given, prior turns for that user are loaded as short-term
+    multi-turn memory (rolling window, age-bounded).
+    """
     started = time.perf_counter()
     results = kb.search(_query_expansion(question), sources=sources, limit=limit)
     kb_elapsed = time.perf_counter()
@@ -815,18 +893,40 @@ def answer_question(question: str, sources: str = "all", limit: int = 14) -> str
         log.exception("adaptive learning-memory lookup failed")
         adaptive_context = ""
     adaptive_elapsed = time.perf_counter()
-    try:
-        from scripts.web_context import fetch_web_context
-
-        web_context = fetch_web_context(
-            question,
-            kb_result_count=len(results),
-            has_structured_context=bool(structured_context),
-        )
-    except Exception:
-        log.exception("web context lookup failed")
+    # When the native web_search tool will run in the agentic loop, skip the
+    # pre-fetched web block (the model searches mid-reasoning instead). The
+    # source-constrained fast path has no tool loop, so it keeps the pre-fetch.
+    fast_path = bool(structured_context) and _is_source_constrained_query(question)
+    use_native_web = _native_web_enabled() and _agentic_enabled() and not fast_path
+    if use_native_web:
         web_context = ""
+    else:
+        try:
+            from scripts.web_context import fetch_web_context
+
+            web_context = fetch_web_context(
+                question,
+                kb_result_count=len(results),
+                has_structured_context=bool(structured_context),
+            )
+        except Exception:
+            log.exception("web context lookup failed")
+            web_context = ""
     web_elapsed = time.perf_counter()
+    # Short-term multi-turn memory: prior (question, answer) turns for this user.
+    history = []
+    try:
+        if user_id is not None and _env_int("ANALYST_MEMORY_TURNS", 6) > 0:
+            from scripts.learning import recent_interactions
+
+            history = recent_interactions(
+                user_id,
+                limit=_env_int("ANALYST_MEMORY_TURNS", 6),
+                max_age_minutes=_env_int("ANALYST_MEMORY_MAX_AGE_MIN", 120),
+            )
+    except Exception:
+        log.exception("analyst history load failed")
+        history = []
     log.info(
         "answer_question context ready kb_results=%s structured=%s adaptive=%s web=%s timings=%.2f/%.2f/%.2f/%.2f total=%.2fs",
         len(results),
@@ -869,7 +969,7 @@ for stocks/themes. Attribute KB claims to the specific source/author when known.
 Attribute current web claims to their web source when used. Do not append a raw
 source list.
 """
-            return _call_claude_agentic(prompt)
+            return _call_claude_agentic(prompt, history=history)
         # No retrieved context at all. Still goes through the agentic path:
         # the message may be an instruction (run a sweep, check job status)
         # rather than a research question.
@@ -881,7 +981,7 @@ No local KB, structured research-memory, or web context matched this query.
 If this is a pipeline instruction or status question, use your tools. If it is
 a research question, say plainly that the research base has no relevant
 material yet and what you would ingest next — do not fabricate a view.
-""")
+""", history=history)
 
     prompt = f"""\
 User query:
@@ -906,7 +1006,7 @@ Attribute current web claims to their web source when used. Do not append a raw
 source list. Do not say you are using "chunks" or "retrieval".
 """
     try:
-        return _call_claude_agentic(prompt)
+        return _call_claude_agentic(prompt, history=history)
     except Exception as e:
         top = results[0]
         return (

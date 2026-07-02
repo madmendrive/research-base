@@ -385,7 +385,7 @@ def _save_data(path, data):
 
 
 def _load_companies():
-    with open(CONFIG_PATH) as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 

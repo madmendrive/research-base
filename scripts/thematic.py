@@ -23,9 +23,9 @@ DATA_DIR = PROJECT_ROOT / "data"
 THEMATIC_DIR = DATA_DIR / "Thematic"
 CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 
-RESEARCH_MODEL = "claude-opus-4-7"   # default
+RESEARCH_MODEL = "claude-opus-4-8"   # default
 EXTRACTION_MODEL = "claude-sonnet-4-6"
-SYNTHESIS_MODEL = "claude-opus-4-7"
+SYNTHESIS_MODEL = "claude-opus-4-8"
 MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 
 
@@ -34,7 +34,7 @@ MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 # ---------------------------------------------------------------------------
 
 def _load_companies():
-    with open(CONFIG_PATH) as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 

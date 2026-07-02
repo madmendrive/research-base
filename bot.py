@@ -22,6 +22,7 @@ import truststore; truststore.inject_into_ssl()
 import os
 import json
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 import shutil
 import tempfile
@@ -168,6 +169,39 @@ def _tech_brief_status_text() -> str:
         except Exception:
             pass
     return "\n".join(lines)
+
+
+# Genuine "is the brief/sweep machinery working?" queries take the deterministic
+# status fast-path. Analysis requests that merely mention the word "headline"
+# (e.g. "analyse this headline: ...") must fall through to the analyst.
+_BRIEF_TOPIC_RE = re.compile(r"\b(tech brief|headlines?)\b", re.IGNORECASE)
+_ANALYSIS_INTENT_RE = re.compile(
+    r"\b(analy[sz]e|analy[sz]is|summari[sz]e|thoughts?|implications?|impact|"
+    r"read[\s-]?through|interpret|make of|view on|take on|read on|mean(s|ing)?\s+for)\b",
+    re.IGNORECASE,
+)
+_STATUS_INTENT_RE = re.compile(
+    r"\b(status|ran|run|running|did|does|has|have|when|last|latest|recent|"
+    r"update[ds]?|sweep|arrive[ds]?|generate[ds]?|schedule[ds]?|missed|pending|"
+    r"queue[ds]?|finish(ed)?|complete[ds]?|fail(ed|ing)?|why)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_tech_brief_status_query(text: str) -> bool:
+    """True only for genuine Tech Brief / headline-sweep *status* questions.
+
+    Returns False for analysis requests that merely contain the word "headline"
+    so they reach the analyst instead of the status fast-path.
+    """
+    if not _BRIEF_TOPIC_RE.search(text):
+        return False
+    if _ANALYSIS_INTENT_RE.search(text):
+        return False
+    # Bare topic ("headlines", "tech brief?") or an explicit operational query.
+    if len(text.split()) <= 3:
+        return True
+    return bool(_STATUS_INTENT_RE.search(text))
 
 
 def _chunk(text: str, size: int = 3800) -> list[str]:
@@ -914,7 +948,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return await _deny(update)
     text = (update.message.text or "").strip()
     lower = text.lower()
-    if "tech brief" in lower or "headline" in lower:
+    if _is_tech_brief_status_query(text):
         await _send_long_html(update, _tech_brief_status_text())
         return
     if lower.startswith("ingest this"):

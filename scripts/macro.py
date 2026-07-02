@@ -57,9 +57,9 @@ def use_category(category: str):
     finally:
         _active_macro_dir.reset(token)
 
-RESEARCH_MODEL = "claude-opus-4-7"   # default
+RESEARCH_MODEL = "claude-opus-4-8"   # default
 EXTRACTION_MODEL = "claude-sonnet-4-6"   # structured JSON
-SYNTHESIS_MODEL = "claude-opus-4-7"      # view-evolution + comparative analysis
+SYNTHESIS_MODEL = "claude-opus-4-8"      # view-evolution + comparative analysis
 MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 
 VIEW_TOPICS = [
@@ -644,7 +644,9 @@ def _generate_macro_summary_md(macro_summary, all_author_summaries):
 def store_macro(file_path, author):
     """Store a macro research file under the given author."""
     import click
+    from scripts.authors import canonicalize_author
 
+    author = canonicalize_author(author)
     author_dir = _ensure_dirs(author)
     notes_dir = author_dir / "notes"
 

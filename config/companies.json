@@ -1769,5 +1769,27 @@
     "name": "Pony.ai Inc",
     "market": "US",
     "sec_cik": "0001969302"
+  },
+  "OUST": {
+    "name": "Ouster, Inc.",
+    "market": "US",
+    "sec_cik": "0001816581"
+  },
+  "AOS": {
+    "name": "Alpha & Omega Semiconductor",
+    "market": "US"
+  },
+  "PALO": {
+    "name": "Palo Alto Networks, Inc.",
+    "market": "US"
+  },
+  "CRWD": {
+    "name": "CrowdStrike Holdings, Inc.",
+    "market": "US",
+    "sec_cik": "0001535527"
+  },
+  "SBA": {
+    "name": "SBA Communications Corp.",
+    "market": "US"
   }
 }

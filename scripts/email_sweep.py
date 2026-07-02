@@ -561,6 +561,7 @@ def email_sweep(
     limit: int = 50,
     analyse_attachments: bool = False,
     extract_research: bool = True,
+    combined: bool = False,
 ) -> dict:
     EMAIL_DIR.mkdir(parents=True, exist_ok=True)
     state = _load_state()
@@ -612,7 +613,12 @@ def email_sweep(
     _save_latest_email_digest(digest_items)
     stats["digest_items"] = len(digest_items)
 
-    if notify and digest_items:
+    if combined:
+        # Submit to the daily coordinator instead of sending; the merged
+        # email+inbox message goes out once both sweeps conclude.
+        from scripts.combined_digest import submit_part
+        submit_part("email", _email_section_text(digest_items, stats))
+    elif notify and digest_items:
         telegram_send_markdownish_html(_format_email_digest(digest_items, stats))
     elif notify and stats["new"]:
         telegram_send(
@@ -620,6 +626,17 @@ def email_sweep(
             f"items (filtered as low-value or attachment-only)."
         )
     return stats
+
+
+def _email_section_text(items: list[dict], stats: dict) -> str:
+    """Email-sweep section for the combined digest, covering the empty cases so
+    the merged message always has an email section."""
+    if items:
+        return _format_email_digest(items, stats)
+    if stats.get("new"):
+        return ("**Research email sweep — 0 new item(s)**\n"
+                f"({stats['new']} new message(s), none were research items.)")
+    return "**Research email sweep — 0 new item(s)**\n(no new research emails today)"
 
 
 def _format_email_digest(items: list[dict], stats: dict) -> str:

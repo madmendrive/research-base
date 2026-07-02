@@ -152,7 +152,7 @@ def _call_anthropic_web(query: str, *, max_items: int, max_searches: int) -> str
     if not model:
         candidate = os.environ.get("ANALYST_WEB_MODEL", "")
         model = candidate if candidate and not candidate.lower().startswith(("gpt-", "o")) else ""
-    model = model or os.environ.get("ANALYST_MODEL") or "claude-opus-4-7"
+    model = model or os.environ.get("ANALYST_MODEL") or "claude-opus-4-8"
     client = Anthropic(
         timeout=float(os.environ.get("ANALYST_WEB_TIMEOUT", "120")),
         max_retries=int(os.environ.get("ANALYST_WEB_MAX_RETRIES", "1")),

@@ -23,9 +23,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_PATH = PROJECT_ROOT / "config" / "companies.json"
 
-RESEARCH_MODEL = "claude-opus-4-7"   # default; per-call overrides for tiering below
+RESEARCH_MODEL = "claude-opus-4-8"   # default; per-call overrides for tiering below
 EXTRACTION_MODEL = "claude-sonnet-4-6"   # structured JSON from doc text
-SYNTHESIS_MODEL = "claude-opus-4-7"      # view-evolution + comparative analysis
+SYNTHESIS_MODEL = "claude-opus-4-8"      # view-evolution + comparative analysis
 MAX_TEXT_CHARS = 400_000   # was 30K; long primers were silently clipped
 
 # Currency / unit config by market
@@ -51,7 +51,7 @@ def _currency_for_ticker(ticker):
 # ---------------------------------------------------------------------------
 
 def _load_companies():
-    with open(CONFIG_PATH) as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 

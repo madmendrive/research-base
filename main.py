@@ -986,7 +986,7 @@ def study_cmd(scope, topics, targets, since_hours, max_cost, limit, provider, mo
                 os.environ.get("STUDY_MODEL")
                 or os.environ.get("ANALYST_STRUCTURED_ANTHROPIC_MODEL")
                 or os.environ.get("ANALYST_MODEL")
-                or "claude-opus-4-7"
+                or "claude-opus-4-8"
             )
     topic_tuple = tuple(t.strip() for t in (topics or "").split(",") if t.strip())
     target_tuple = tuple(t.strip() for t in (targets or "").split(",") if t.strip())

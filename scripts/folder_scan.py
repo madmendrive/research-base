@@ -43,11 +43,12 @@ def _hash_file(path: Path, chunk_size: int = 1 << 20) -> str:
 # Scan digest state — one JSON file tracks the latest folder-scan run
 # ---------------------------------------------------------------------------
 
-def _save_scan_session(scan_id: str, total: int) -> None:
+def _save_scan_session(scan_id: str, total: int, combined: bool = False) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     record = {
         "scan_id": scan_id,
         "total": total,
+        "combined": combined,
         "items": [],
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
@@ -95,24 +96,40 @@ def get_scan_item_by_rank(rank: int) -> dict | None:
     return None
 
 
-def send_scan_digest(items: list[dict]) -> None:
-    """Send the inbox-scan digest to Telegram.
+def format_scan_digest(items: list[dict]) -> str:
+    """Inbox-scan digest text. Mirrors the email-sweep digest: rank, bold title,
+    author, /inbox_N command.
 
-    Format mirrors the email-sweep digest: rank, bold title, author, /inbox_N command.
+    Uses **bold** (not literal <b>): telegram_html escapes raw tags, so the old
+    <b> markup was rendered verbatim instead of bold. The layout is unchanged.
     """
     if not items:
-        return
-    lines = [f"<b>Inbox scan — {len(items)} new file(s)</b>", ""]
+        return "**Inbox scan — 0 new file(s)**\n(no new files today)"
+
+    def _as_text(v) -> str:
+        # title/author can come back from triage as a list of names
+        if isinstance(v, (list, tuple)):
+            return ", ".join(str(x).strip() for x in v if x)
+        return str(v or "").strip()
+
+    lines = [f"**Inbox scan — {len(items)} new file(s)**", ""]
     for it in items:
-        title = (it.get("title") or "(untitled)").strip()
-        author = (it.get("author") or "").strip()
+        title = _as_text(it.get("title")) or "(untitled)"
+        author = _as_text(it.get("author"))
         rank = it.get("rank", "?")
-        lines.append(f"{rank}. <b>{title}</b>")
+        lines.append(f"{rank}. **{title}**")
         if author:
             lines.append(f"   {author}")
         lines.append(f"   analyse: /inbox_{rank}")
         lines.append("")
-    telegram_send_markdownish_html("\n".join(lines).strip())
+    return "\n".join(lines).strip()
+
+
+def send_scan_digest(items: list[dict]) -> None:
+    """Send the inbox-scan digest to Telegram (standalone, non-combined runs)."""
+    if not items:
+        return
+    telegram_send_markdownish_html(format_scan_digest(items))
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +137,7 @@ def send_scan_digest(items: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
-                analyse: bool = False) -> dict:
+                analyse: bool = False, combined: bool = False) -> dict:
     base = Path(folder).expanduser().resolve()
     if not base.exists() or not base.is_dir():
         raise FileNotFoundError(base)
@@ -164,11 +181,18 @@ def folder_scan(folder: str, notify: bool = False, recursive: bool = False,
     }
     if notify:
         if queued > 0:
-            _save_scan_session(scan_id, queued)
-            telegram_send(
-                f"Inbox scan: {scanned} scanned, {queued} new file(s) queued. "
-                f"Digest will follow when ingestion completes."
-            )
+            _save_scan_session(scan_id, queued, combined=combined)
+            # In combined mode the merged digest is sent once the last ingest
+            # finishes; skip the interim "digest will follow" ping.
+            if not combined:
+                telegram_send(
+                    f"Inbox scan: {scanned} scanned, {queued} new file(s) queued. "
+                    f"Digest will follow when ingestion completes."
+                )
+        elif combined:
+            # Nothing new, but the combined message still needs an inbox part.
+            from scripts.combined_digest import submit_part
+            submit_part("inbox", format_scan_digest([]))
         else:
             telegram_send(
                 f"Inbox scan: {scanned} scanned, nothing new "

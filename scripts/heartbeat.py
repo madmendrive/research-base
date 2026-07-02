@@ -18,8 +18,8 @@ STATE_PATH = DATA_DIR / "_kb" / "heartbeat_state.json"
 DEFAULT_AGENDA = {
     "timezone": "Asia/Hong_Kong",
     "folder": r"C:\Users\Owner\Downloads\research-inbox",
-    "folder_sweep_times": ["08:30", "20:30"],
-    "email_sweep_times": ["16:00"],
+    "folder_sweep_times": ["03:00"],
+    "email_sweep_times": ["03:00"],
     "headline_sweep_times": ["02:00", "08:00", "14:00", "20:00"],
     "headline_interval_hours": 6,
     "headline_window_hours": 24,
@@ -166,8 +166,33 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
         state = _load_state()
         notify = bool(agenda.get("notify", True))
 
+        # Failsafe: if a combined daily digest has been waiting too long for a
+        # sweep that stalled/failed, flush whatever parts arrived.
+        try:
+            from scripts.combined_digest import flush_if_stale
+            flush_if_stale()
+        except Exception as e:
+            print(f"combined digest flush check failed ({e})")
+
         folder_times = agenda.get("folder_sweep_times") or []
+        email_times = agenda.get("email_sweep_times") or []
         folder_due = _scheduled_slot_due(now, list(folder_times), state, "folder", catch_up=False)
+        # catch_up: once-daily now, so a slot missed during downtime should
+        # still run on startup rather than skip the day's research email.
+        email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=True)
+
+        # When both daily sweeps fire in the same tick (the 03:00 pair), run
+        # them in combined mode: each submits its digest to the coordinator and
+        # one merged message is sent once both conclude.
+        combined = bool(folder_due and email_due)
+        if combined:
+            try:
+                from scripts.combined_digest import begin_day
+                begin_day()
+            except Exception as e:
+                print(f"combined digest begin_day failed ({e}); sweeps will send separately")
+                combined = False
+
         if folder_due:
             scheduled, run_key = folder_due
             enqueue_job(
@@ -176,15 +201,12 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                     "folder": agenda.get("folder"),
                     "notify": notify,
                     "analyse": bool(agenda.get("folder_analyse", False)),
+                    "combined": combined,
                 },
                 dedupe_key=f"folder_scan:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )
             state[run_key] = now.isoformat(timespec="seconds")
 
-        email_times = agenda.get("email_sweep_times") or []
-        # catch_up: once-daily now, so a slot missed during downtime should
-        # still run on startup rather than skip the day's research email.
-        email_due = _scheduled_slot_due(now, list(email_times), state, "email", catch_up=True)
         if email_due:
             scheduled, run_key = email_due
             enqueue_job(
@@ -193,6 +215,7 @@ def heartbeat(agenda_path: str | Path, run_once: bool = False, sleep_seconds: in
                     "notify": notify,
                     "analyse_attachments": bool(agenda.get("email_analyse_attachments", False)),
                     "extract_research": bool(agenda.get("email_extract_research", True)),
+                    "combined": combined,
                 },
                 dedupe_key=f"email_sweep:{now.strftime('%Y-%m-%d')}:{scheduled}",
             )

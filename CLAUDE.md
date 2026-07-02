@@ -49,7 +49,7 @@ Each dropped PDF flows through:
 |---|---|---|
 | Triage / classification | `claude-haiku-4-5-20251001` | Constrained classification — Haiku is plenty, ~15× cheaper than Opus |
 | Structured extraction | `claude-sonnet-4-6` | Long structured JSON — Sonnet 4.6 is the sweet spot |
-| View-evolution / cross-cut analysis | `claude-opus-4-7` | Synthesis quality matters — Opus earns its keep |
+| View-evolution / cross-cut analysis | `claude-opus-4-8` | Synthesis quality matters — Opus earns its keep |
 | IR document classifier | `claude-haiku-4-5-20251001` | Just routing 10-K vs earnings; Haiku is plenty, ~3× cheaper than Sonnet 4 |
 
 Per-call model is passed to `_call_api(..., model=...)` in `scripts/research.py`. Other scripts have their own `_call_api` matching this signature.
@@ -216,6 +216,10 @@ After `folder_scan` with `notify=True` queues new files:
 
 ```powershell
 # After reboot: restart all four services (no auto-start on Windows)
+# PYTHONUTF8=1 is REQUIRED: default Windows encoding is cp1252, and several
+# config reads (companies.json has Chinese name_zh fields) decode as UTF-8.
+# Without it, single-name ingests crash with UnicodeDecodeError (charmap).
+$env:PYTHONUTF8 = "1"; $env:PYTHONIOENCODING = "utf-8"
 $py = "C:\Users\Owner\AppData\Local\Programs\Python\Python312\python.exe"
 $root = "C:\Users\Owner\research-pipeline"
 Start-Process -FilePath $py -ArgumentList "bot.py" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\bot.out.log" -RedirectStandardError "$root\bot.err.log"
