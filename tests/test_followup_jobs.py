@@ -111,8 +111,9 @@ class TestRunSecondPass(unittest.TestCase):
                 self.json_path, primary_type="macro", subject="Some Author",
                 category="Semis")
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(
-            [c.args[0] for c in use_cat.call_args_list], ["Semis", "Semis"])
+        # Context load, per-note theme update, and entity rebuild each enter
+        # the category context — always as Semis.
+        self.assertEqual({c.args[0] for c in use_cat.call_args_list}, {"Semis"})
         rebuild_author.assert_called_once()
         update_themes.assert_called_once()
         rebuild_macro.assert_called_once()

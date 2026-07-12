@@ -914,6 +914,37 @@ def email_sweep_cmd(once, notify, limit, analyse_attachments, no_extract_researc
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+@cli.command("batch-second-pass")
+@click.option("--submit", "submit", is_flag=True, help="Build prompts and submit a message batch (50% token cost).")
+@click.option("--status", "status_", is_flag=True, help="Show processing status of a submitted batch.")
+@click.option("--apply", "apply_", is_flag=True, help="Enqueue the heavy-lane job that merges results + rebuilds summaries.")
+@click.option("--batch-id", default=None, help="Target a specific batch (default: most recently submitted).")
+@click.option("--since", default="", help="Only notes stored on/after this date prefix (YYYY-MM-DD).")
+@click.option("--limit", default=0, help="Cap the number of notes submitted (0 = all).")
+@click.option("--dry-run", is_flag=True, help="Count pending notes + estimate cost; no submission.")
+def batch_second_pass_cmd(submit, status_, apply_, batch_id, since, limit, dry_run):
+    """Backfill Opus view-evolution second passes via the Message Batches API."""
+    from scripts.batch_pass import batch_status, submit_batch
+
+    if apply_:
+        from datetime import datetime
+
+        from scripts.jobs import enqueue_job
+
+        job_id = enqueue_job(
+            "batch_second_pass_apply",
+            {"batch_id": batch_id, "notify": True},
+            dedupe_key=f"batch_second_pass_apply:{batch_id or 'latest'}:{datetime.now().strftime('%Y-%m-%d')}",
+        )
+        click.echo(json.dumps({"queued_job": job_id}, indent=2))
+        return
+    if submit or dry_run:
+        stats = submit_batch(since=since, limit=limit, dry_run=dry_run and not submit)
+    else:
+        stats = batch_status(batch_id)
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
 @cli.command("gmail-auth")
 @click.option("--client-secret", default=None,
               help="Path to Google Desktop OAuth client secret JSON.")
