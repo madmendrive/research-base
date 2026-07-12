@@ -458,9 +458,9 @@ def _record_theme_proposals(triage: dict[str, Any], source: Path, notify: bool) 
     return themes
 
 
-def _rebuild_entity_summary(triage: dict[str, Any]) -> None:
+def _rebuild_entity_summary(triage: dict[str, Any], dest: Path, extraction: dict[str, Any]) -> None:
     """Rebuild the rolling summary of the entity this commit touched.
-    All three rebuilds are local aggregation over stored note JSONs — no API calls."""
+    All rebuilds are local aggregation over stored note JSONs — no API calls."""
     pt = triage.get("primary_type")
     subject = triage.get("primary_subject")
     if pt == "single_name":
@@ -474,8 +474,50 @@ def _rebuild_entity_summary(triage: dict[str, Any]) -> None:
     elif pt in {"macro", "news_article"}:
         from scripts import macro
 
+        # Author views aggregate from note JSONs (including fast-stored
+        # ones), so refresh the author summary before the category rollup
+        # that is built from it.
+        author_dir = dest.parent.parent
         with macro.use_category(triage.get("category") or "Macro"):
+            macro._rebuild_author_summary(author_dir)
+            macro._update_themes(extraction, author_dir.name)
             macro._rebuild_macro_summary()
+
+
+def _enqueue_followups(triage: dict[str, Any], digest: str, dest: Path,
+                       json_path: Path | None) -> list[str]:
+    """Queue the Opus analysis passes the classic pipeline runs inline:
+    one view_evolution job for the primary entity, one cross_cut job per
+    materiality-gated secondary. Queued (not inline) so the ingest commit —
+    and the scan digest behind it — never waits on Opus."""
+    from scripts.bot_pipeline import _derive_secondaries
+    from scripts.jobs import enqueue_job
+
+    queued: list[str] = []
+    pt = triage.get("primary_type")
+    subject = triage.get("primary_subject")
+    if pt == "single_name":
+        subject = canonicalize_ticker(subject) or subject
+    if json_path and subject and pt in {"single_name", "macro", "thematic"}:
+        enqueue_job(
+            "view_evolution",
+            {
+                "json_path": str(json_path),
+                "primary_type": pt,
+                "subject": subject,
+                "category": triage.get("category") or "Macro",
+            },
+            dedupe_key=f"view_evolution:{digest}",
+        )
+        queued.append("view_evolution")
+    for _label, kind, target in _derive_secondaries(triage):
+        enqueue_job(
+            "cross_cut",
+            {"kind": kind, "target": target, "path": str(dest), "file": dest.name},
+            dedupe_key=f"cross_cut:{digest}:{kind}:{target}",
+        )
+        queued.append(f"cross_cut:{kind}:{target}")
+    return queued
 
 
 def _summary_markdown(payload: dict[str, Any]) -> str:
@@ -489,7 +531,7 @@ def _summary_markdown(payload: dict[str, Any]) -> str:
 
 
 def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = False,
-                  notify: bool = True) -> dict[str, Any]:
+                  notify: bool = True, analyse: bool = True) -> dict[str, Any]:
     record = json.loads(stage_path.read_text(encoding="utf-8", errors="replace"))
     digest = record["digest"]
     source = Path(record["source_path"])
@@ -528,7 +570,7 @@ def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = F
         if not summary_path.exists():
             summary_path.write_text(_summary_markdown(extraction), encoding="utf-8")
         try:
-            _rebuild_entity_summary(triage)
+            _rebuild_entity_summary(triage, dest, extraction)
         except Exception as e:
             # A summary is rebuilt from ALL stored notes, so the next commit
             # for this entity repairs it — don't fail an otherwise-good store.
@@ -537,6 +579,16 @@ def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = F
 
             logging.getLogger("parallel_ingest").warning(
                 "summary rebuild failed after storing %s: %s", source.name, summary_rebuild_error)
+
+    followups: list[str] = []
+    if analyse and status != "pending_review":
+        try:
+            followups = _enqueue_followups(triage, digest, dest, json_path)
+        except Exception as e:
+            import logging
+
+            logging.getLogger("parallel_ingest").warning(
+                "follow-up enqueue failed for %s: %s: %s", source.name, type(e).__name__, e)
 
     kb_result = kb.index_file(
         dest,
@@ -570,6 +622,7 @@ def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = F
         "confidence": triage.get("confidence"),
         "proposed_new_themes": proposed_themes,
         "summary_rebuild_error": summary_rebuild_error,
+        "followup_jobs": followups,
     }
 
 
@@ -653,7 +706,10 @@ def bulk_ingest_fast(folder: str, *, parallel: int = 4, limit: int = 0,
                 # notify=False: a bulk run over hundreds of files must not send
                 # one Telegram ping per held file; holds and theme proposals
                 # are aggregated into the run stats below instead.
-                row = _commit_stage(stage_path, embed=embed, force_index=force, notify=False)
+                # analyse=False: bulk backfills would enqueue thousands of
+                # Opus jobs — bulk-cross-cut covers the corpus deliberately.
+                row = _commit_stage(stage_path, embed=embed, force_index=force,
+                                    notify=False, analyse=False)
                 committed_rows.append(row)
                 state.setdefault("committed", {})[row["digest"]] = {
                     "file": row["file"],

@@ -376,6 +376,7 @@ def _process_job(job: dict) -> str:
             embed=bool(payload.get("embed", True)),
             force_index=bool(payload.get("force", False)),
             notify=True,
+            analyse=bool(payload.get("analyse_followups", True)),
         )
         record = json.loads(stage_path.read_text(encoding="utf-8", errors="replace"))
         extraction = record.get("extraction") or {}
@@ -429,6 +430,27 @@ def _process_job(job: dict) -> str:
         elif payload.get("notify", True):
             telegram_send_markdownish_html(research_readthrough(result, path.name))
         return f"ingested {path} -> {committed.get('stored_path')}"
+
+    if kind == "view_evolution":
+        from scripts.second_pass import run_second_pass
+
+        result = run_second_pass(
+            payload["json_path"],
+            primary_type=payload["primary_type"],
+            subject=payload["subject"],
+            category=payload.get("category") or "Macro",
+        )
+        return json.dumps(result)
+
+    if kind == "cross_cut":
+        from scripts.bot_pipeline import _cross_analyse_theme, _cross_analyse_ticker
+
+        path = Path(payload["path"])
+        if payload["kind"] == "ticker":
+            report = _cross_analyse_ticker(payload["target"], path)
+        else:
+            report = _cross_analyse_theme(payload["target"], path)
+        return f"cross-cut {payload['kind']}:{payload['target']} ({len(report)} chars)"
 
     if kind == "analyst_question":
         from scripts.analyst import answer_question
