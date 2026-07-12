@@ -149,11 +149,18 @@ class TestFastIngestCorpus(unittest.TestCase):
                          "status": "research"},
                 "b" * 64: {"file": "held.pdf", "status": "pending_review"},
             }}), encoding="utf-8")
+            known = {"FAKE", "OTHER", "NOISE"}
             with mock.patch.object(CC, "FAST_STATE_PATH", state), \
-                    mock.patch.object(CC, "FAST_STAGING_DIR", staging):
+                    mock.patch.object(CC, "FAST_STAGING_DIR", staging), \
+                    mock.patch("scripts.tickers.canonicalize_ticker",
+                               side_effect=lambda t: t if t in known else None), \
+                    mock.patch("scripts.triage._existing_themes",
+                               return_value=["Memory"]):
                 records = CC._fast_ingest_records()
         self.assertEqual(list(records), [digest])
         rec = records[digest]
+        # NOISE dropped by materiality; unknown tickers/themes would be
+        # dropped by the validity gate (all of these are "known" here).
         self.assertEqual(rec["tickers_covered"], ["FAKE", "OTHER"])
         self.assertEqual(rec["themes_touched"], ["Memory"])
         self.assertEqual(rec["source_path"], str(data / "stored.pdf"))
