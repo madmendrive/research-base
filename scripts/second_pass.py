@@ -25,8 +25,8 @@ VIEW_EVOLUTION_MARKER = "View Evolution & Cross-Author Comparison"
 
 
 def _load_json(path: Path) -> Any:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    # errors="replace": a few pre-encoding-fix notes carry stray cp1252 bytes.
+    return json.loads(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def _save_note(path: Path, note_data: dict) -> None:
