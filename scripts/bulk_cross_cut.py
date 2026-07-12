@@ -62,12 +62,20 @@ def _fast_ingest_records() -> dict:
     materiality-gated here (mirroring bot_pipeline._derive_secondaries);
     passing mentions never become pairs. The stored copy is used as the
     source PDF — inbox originals may have moved since ingestion."""
+    from scripts.tickers import canonicalize_ticker
+    from scripts.triage import _existing_themes
+
     if not FAST_STATE_PATH.exists():
         return {}
     try:
         state = json.loads(FAST_STATE_PATH.read_text(encoding="utf-8", errors="replace"))
     except json.JSONDecodeError:
         return {}
+    # The fast path's triage doesn't always obey the strict theme constraint,
+    # so themes_touched can contain invented themes and tickers_covered
+    # companies outside the coverage universe. Cross-cutting those would
+    # create junk entity dirs — gate targets to known tickers/themes.
+    known_themes = set(_existing_themes())
     records = {}
     for digest, rec in (state.get("committed") or {}).items():
         if rec.get("status") == "pending_review":
@@ -91,10 +99,12 @@ def _fast_ingest_records() -> dict:
             "tickers_covered": [
                 t for t in triage.get("tickers_covered") or []
                 if ticker_mat.get(t, "significant") != "passing"
+                and canonicalize_ticker(t)
             ],
             "themes_touched": [
                 t for t in triage.get("themes_touched") or []
                 if theme_mat.get(t, "significant") != "passing"
+                and t in known_themes
             ],
         }
     return records

@@ -510,7 +510,17 @@ def _enqueue_followups(triage: dict[str, Any], digest: str, dest: Path,
             dedupe_key=f"view_evolution:{digest}",
         )
         queued.append("view_evolution")
+    from scripts.triage import _existing_themes
+
+    known_themes = set(_existing_themes())
     for _label, kind, target in _derive_secondaries(triage):
+        # Triage can name tickers outside the coverage universe or invented
+        # themes (the strict theme constraint isn't always obeyed by the fast
+        # provider) — cross-cutting those would create junk entity dirs.
+        if kind == "ticker" and not canonicalize_ticker(target):
+            continue
+        if kind == "theme" and target not in known_themes:
+            continue
         enqueue_job(
             "cross_cut",
             {"kind": kind, "target": target, "path": str(dest), "file": dest.name},
