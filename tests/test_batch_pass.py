@@ -152,8 +152,8 @@ class TestFastIngestCorpus(unittest.TestCase):
             known = {"FAKE", "OTHER", "NOISE"}
             with mock.patch.object(CC, "FAST_STATE_PATH", state), \
                     mock.patch.object(CC, "FAST_STAGING_DIR", staging), \
-                    mock.patch("scripts.tickers.canonicalize_ticker",
-                               side_effect=lambda t: t if t in known else None), \
+                    mock.patch("scripts.triage._load_companies",
+                               return_value={t: {} for t in known}), \
                     mock.patch("scripts.triage._existing_themes",
                                return_value=["Memory"]):
                 records = CC._fast_ingest_records()

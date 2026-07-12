@@ -16,8 +16,8 @@ class TestEnqueueFollowups(unittest.TestCase):
         json_path = dest.with_name(dest.name + ".json")
         known = {"FAKE", "OTHER", "NOISE"}
         with mock.patch("scripts.jobs.enqueue_job", return_value=1) as enq, \
-                mock.patch.object(P, "canonicalize_ticker",
-                                  side_effect=lambda t: t if t in known else None), \
+                mock.patch("scripts.triage._load_companies",
+                           return_value={t: {} for t in known}), \
                 mock.patch("scripts.triage._existing_themes", return_value=["Memory"]):
             queued = P._enqueue_followups(triage, digest, dest, json_path)
         return queued, enq
