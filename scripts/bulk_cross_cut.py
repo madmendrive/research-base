@@ -63,7 +63,7 @@ def _fast_ingest_records() -> dict:
     passing mentions never become pairs. The stored copy is used as the
     source PDF — inbox originals may have moved since ingestion."""
     from scripts.tickers import canonicalize_ticker
-    from scripts.triage import _existing_themes
+    from scripts.triage import _existing_themes, _load_companies
 
     if not FAST_STATE_PATH.exists():
         return {}
@@ -75,7 +75,10 @@ def _fast_ingest_records() -> dict:
     # so themes_touched can contain invented themes and tickers_covered
     # companies outside the coverage universe. Cross-cutting those would
     # create junk entity dirs — gate targets to known tickers/themes.
+    # canonicalize_ticker normalizes but returns unknowns unchanged, so
+    # coverage is a companies.json membership check.
     known_themes = set(_existing_themes())
+    covered = set(_load_companies())
     records = {}
     for digest, rec in (state.get("committed") or {}).items():
         if rec.get("status") == "pending_review":
@@ -99,7 +102,7 @@ def _fast_ingest_records() -> dict:
             "tickers_covered": [
                 t for t in triage.get("tickers_covered") or []
                 if ticker_mat.get(t, "significant") != "passing"
-                and canonicalize_ticker(t)
+                and (canonicalize_ticker(t) or t) in covered
             ],
             "themes_touched": [
                 t for t in triage.get("themes_touched") or []

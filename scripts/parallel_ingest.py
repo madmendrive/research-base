@@ -510,14 +510,17 @@ def _enqueue_followups(triage: dict[str, Any], digest: str, dest: Path,
             dedupe_key=f"view_evolution:{digest}",
         )
         queued.append("view_evolution")
-    from scripts.triage import _existing_themes
+    from scripts.triage import _existing_themes, _load_companies
 
     known_themes = set(_existing_themes())
+    covered = set(_load_companies())
     for _label, kind, target in _derive_secondaries(triage):
         # Triage can name tickers outside the coverage universe or invented
         # themes (the strict theme constraint isn't always obeyed by the fast
         # provider) — cross-cutting those would create junk entity dirs.
-        if kind == "ticker" and not canonicalize_ticker(target):
+        # canonicalize_ticker normalizes but returns unknowns unchanged, so
+        # coverage is a companies.json membership check.
+        if kind == "ticker" and (canonicalize_ticker(target) or target) not in covered:
             continue
         if kind == "theme" and target not in known_themes:
             continue
