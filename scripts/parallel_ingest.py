@@ -31,6 +31,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 STAGING_DIR = DATA_DIR / "_staging_ingest"
 STATE_PATH = DATA_DIR / "_fast_ingest_state.json"
 PENDING_REVIEW_DIR = DATA_DIR / "_pending_review"
+ROUTING_LOG_PATH = DATA_DIR / "_routing_log.jsonl"
+THEME_PROPOSALS_PATH = DATA_DIR / "_theme_proposals.jsonl"
 
 TRIAGE_MAX_PAGES = 8
 TRIAGE_MAX_CHARS = 25_000
@@ -387,6 +389,95 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _log_routing(triage: dict[str, Any], source: Path, dest: Path) -> None:
+    """Append to the same append-only audit log the classic pipeline writes."""
+    _append_jsonl(ROUTING_LOG_PATH, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "file": source.name,
+        "pipeline": "fast",
+        "primary_type": triage.get("primary_type"),
+        "category": triage.get("category"),
+        "primary_subject": triage.get("primary_subject"),
+        "confidence": triage.get("confidence"),
+        "routed_to": (
+            dest.parent.relative_to(PROJECT_ROOT).as_posix()
+            if dest.parent.is_relative_to(PROJECT_ROOT)
+            else dest.parent.as_posix()
+        ),
+        "tickers_covered": triage.get("tickers_covered", []),
+        "themes_touched": triage.get("themes_touched", []),
+    })
+
+
+def _notify_held(triage: dict[str, Any], dest: Path) -> bool:
+    """Telegram notice for a low-confidence hold, with the same Confirm /
+    Reclassify / Drop inline buttons /pending uses."""
+    from scripts.notify import telegram_send_with_buttons
+    from scripts.ops import pending_token
+
+    pt = triage.get("primary_type")
+    cat = triage.get("category") or ""
+    token = pending_token(dest)
+    text = (
+        "⚠ LOW CONFIDENCE — held for review.\n"
+        f"Triage best guess: {pt}{('/' + cat) if cat else ''} → {triage.get('primary_subject')}\n"
+        f"Rationale: {triage.get('rationale', '')}\n"
+        f"File: data/_pending_review/{dest.name}"
+    )
+    return telegram_send_with_buttons(text, [[
+        {"text": "Confirm", "callback_data": f"pc:{token}"},
+        {"text": "Reclassify", "callback_data": f"pr:{token}"},
+        {"text": "Drop", "callback_data": f"pd:{token}"},
+    ]])
+
+
+def _record_theme_proposals(triage: dict[str, Any], source: Path, notify: bool) -> list[str]:
+    themes = [t for t in (triage.get("proposed_new_themes") or []) if t]
+    if not themes:
+        return []
+    _append_jsonl(THEME_PROPOSALS_PATH, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "file": source.name,
+        "primary_subject": triage.get("primary_subject"),
+        "themes": themes,
+    })
+    if notify:
+        from scripts.notify import telegram_send
+
+        telegram_send(
+            f"Theme proposal from {source.name}:\n"
+            + "\n".join(f"  • {t}" for t in themes)
+            + "\n\nThemes are never auto-created — create data/Thematic/<name>/ to adopt."
+        )
+    return themes
+
+
+def _rebuild_entity_summary(triage: dict[str, Any]) -> None:
+    """Rebuild the rolling summary of the entity this commit touched.
+    All three rebuilds are local aggregation over stored note JSONs — no API calls."""
+    pt = triage.get("primary_type")
+    subject = triage.get("primary_subject")
+    if pt == "single_name":
+        from scripts.research import rebuild_summary
+
+        rebuild_summary(canonicalize_ticker(subject) or subject)
+    elif pt == "thematic":
+        from scripts.thematic import rebuild_theme_summary
+
+        rebuild_theme_summary(subject)
+    elif pt in {"macro", "news_article"}:
+        from scripts import macro
+
+        with macro.use_category(triage.get("category") or "Macro"):
+            macro._rebuild_macro_summary()
+
+
 def _summary_markdown(payload: dict[str, Any]) -> str:
     meta = payload.get("metadata") or {}
     title = meta.get("title") or "Research note"
@@ -397,7 +488,8 @@ def _summary_markdown(payload: dict[str, Any]) -> str:
     return f"# {title}\n\n- Source: {source}\n- Author: {author}\n- Date: {date}\n\n{body}\n"
 
 
-def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = False) -> dict[str, Any]:
+def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = False,
+                  notify: bool = True) -> dict[str, Any]:
     record = json.loads(stage_path.read_text(encoding="utf-8", errors="replace"))
     digest = record["digest"]
     source = Path(record["source_path"])
@@ -422,13 +514,29 @@ def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = F
         else:
             shutil.copy2(source, dest)
 
+    _log_routing(triage, source, dest)
+    proposed_themes = _record_theme_proposals(triage, source, notify)
+    if status == "pending_review" and notify:
+        _notify_held(triage, dest)
+
     json_path = None
+    summary_rebuild_error = None
     if status != "pending_review":
         json_path = dest.with_name(dest.name + ".json")
         _write_json(json_path, extraction)
         summary_path = dest.with_name(dest.name + "_summary.md")
         if not summary_path.exists():
             summary_path.write_text(_summary_markdown(extraction), encoding="utf-8")
+        try:
+            _rebuild_entity_summary(triage)
+        except Exception as e:
+            # A summary is rebuilt from ALL stored notes, so the next commit
+            # for this entity repairs it — don't fail an otherwise-good store.
+            summary_rebuild_error = f"{type(e).__name__}: {e}"
+            import logging
+
+            logging.getLogger("parallel_ingest").warning(
+                "summary rebuild failed after storing %s: %s", source.name, summary_rebuild_error)
 
     kb_result = kb.index_file(
         dest,
@@ -460,6 +568,8 @@ def _commit_stage(stage_path: Path, *, embed: bool = True, force_index: bool = F
         "primary_type": triage.get("primary_type"),
         "primary_subject": triage.get("primary_subject"),
         "confidence": triage.get("confidence"),
+        "proposed_new_themes": proposed_themes,
+        "summary_rebuild_error": summary_rebuild_error,
     }
 
 
@@ -540,7 +650,10 @@ def bulk_ingest_fast(folder: str, *, parallel: int = 4, limit: int = 0,
         for item in staged:
             stage_path = Path(item["stage_path"])
             try:
-                row = _commit_stage(stage_path, embed=embed, force_index=force)
+                # notify=False: a bulk run over hundreds of files must not send
+                # one Telegram ping per held file; holds and theme proposals
+                # are aggregated into the run stats below instead.
+                row = _commit_stage(stage_path, embed=embed, force_index=force, notify=False)
                 committed_rows.append(row)
                 state.setdefault("committed", {})[row["digest"]] = {
                     "file": row["file"],
@@ -578,6 +691,9 @@ def bulk_ingest_fast(folder: str, *, parallel: int = 4, limit: int = 0,
         "stage_failed": len(stage_failed),
         "committed": len(committed_rows),
         "commit_failed": len(commit_failed),
+        "held_for_review": len([r for r in committed_rows if r.get("status") == "pending_review"]),
+        "held_files": [r["file"] for r in committed_rows if r.get("status") == "pending_review"][:50],
+        "proposed_new_themes": sorted({t for r in committed_rows for t in r.get("proposed_new_themes", [])}),
         "stage_only": stage_only,
         "commit_only": commit_only,
         "parallel": parallel,

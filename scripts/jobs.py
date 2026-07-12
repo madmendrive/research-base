@@ -367,10 +367,15 @@ def _process_job(job: dict) -> str:
         path = Path(payload["path"])
         staged = stage_one(path, force=bool(payload.get("force", False)))
         stage_path = Path(staged["stage_path"])
+        # notify=True regardless of payload["notify"]: that flag gates the
+        # routine readthrough message (the scan digest covers it for scans),
+        # but held-for-review notices and theme proposals must never be
+        # silent — a held file nobody hears about is lost.
         committed = _commit_stage(
             stage_path,
             embed=bool(payload.get("embed", True)),
             force_index=bool(payload.get("force", False)),
+            notify=True,
         )
         record = json.loads(stage_path.read_text(encoding="utf-8", errors="replace"))
         extraction = record.get("extraction") or {}
