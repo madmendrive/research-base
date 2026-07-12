@@ -48,6 +48,58 @@ def _pair_key(file_hash: str, kind: str, target: str) -> str:
     return f"{file_hash}:{kind}:{target}"
 
 
+FAST_STATE_PATH = DATA_DIR / "_fast_ingest_state.json"
+FAST_STAGING_DIR = DATA_DIR / "_staging_ingest"
+
+
+def _fast_ingest_records() -> dict:
+    """Corpus records for fast-ingested docs, in the classic 'processed' shape.
+
+    The classic bulk state only knows sweeper/bulk-ingest docs; the corpus was
+    largely built with bulk-ingest-fast, whose commits live in
+    _fast_ingest_state.json with triage in _staging_ingest/{digest}.json.
+    Without this the cross-cut pass sees an empty corpus. Secondary lists are
+    materiality-gated here (mirroring bot_pipeline._derive_secondaries);
+    passing mentions never become pairs. The stored copy is used as the
+    source PDF — inbox originals may have moved since ingestion."""
+    if not FAST_STATE_PATH.exists():
+        return {}
+    try:
+        state = json.loads(FAST_STATE_PATH.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return {}
+    records = {}
+    for digest, rec in (state.get("committed") or {}).items():
+        if rec.get("status") == "pending_review":
+            continue
+        stage_path = FAST_STAGING_DIR / f"{digest}.json"
+        if not stage_path.exists():
+            continue
+        try:
+            staged = json.loads(stage_path.read_text(encoding="utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            continue
+        triage = staged.get("triage") or {}
+        materiality = triage.get("materiality") or {}
+        ticker_mat = materiality.get("tickers") or {}
+        theme_mat = materiality.get("themes") or {}
+        records[digest] = {
+            "file": rec.get("file"),
+            "source_path": rec.get("stored_path") or staged.get("source_path", ""),
+            "primary_type": triage.get("primary_type", ""),
+            "primary_subject": triage.get("primary_subject", ""),
+            "tickers_covered": [
+                t for t in triage.get("tickers_covered") or []
+                if ticker_mat.get(t, "significant") != "passing"
+            ],
+            "themes_touched": [
+                t for t in triage.get("themes_touched") or []
+                if theme_mat.get(t, "significant") != "passing"
+            ],
+        }
+    return records
+
+
 # ---------------------------------------------------------------------------
 # Pair discovery
 # ---------------------------------------------------------------------------
@@ -136,12 +188,23 @@ def bulk_cross_cut(folder: str = "", dry_run: bool = False, limit: int = 0,
     import click
     from scripts.bot_pipeline import _cross_analyse_ticker, _cross_analyse_theme
 
-    if not BULK_STATE_PATH.exists():
-        click.echo("No _bulk_ingest_state.json found. Run bulk-ingest first.")
-        raise SystemExit(1)
-
-    bulk_state = _load_state(BULK_STATE_PATH)
+    bulk_state = _load_state(BULK_STATE_PATH) if BULK_STATE_PATH.exists() else {}
     cc_state = _load_state(CC_STATE_PATH)
+
+    # Corpus = classic bulk-ingest docs + fast-ingested docs. Classic records
+    # win on digest collision (they carry the original source_path). Note:
+    # docs cross-cut by the real-time cross_cut jobs (Phase 2 of pipeline
+    # unification) are tracked in the jobs table, not here — re-running their
+    # pairs is harmless (analyse_* just writes another analysis file) but
+    # costs a call; use --limit / review the plan when in doubt.
+    fast_records = _fast_ingest_records()
+    if fast_records:
+        bulk_state = dict(bulk_state)
+        bulk_state["processed"] = {**fast_records, **bulk_state.get("processed", {})}
+    if not bulk_state.get("processed"):
+        click.echo("No ingested documents found in _bulk_ingest_state.json or "
+                   "_fast_ingest_state.json. Run an ingest first.")
+        raise SystemExit(1)
 
     fallback = Path(folder).expanduser().resolve() if folder else None
 
