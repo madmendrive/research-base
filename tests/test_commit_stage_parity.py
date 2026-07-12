@@ -60,6 +60,10 @@ class TestCommitStageParity(unittest.TestCase):
         p = mock.patch("scripts.research_memory.ingest_file")
         p.start()
         self.addCleanup(p.stop)
+        # Follow-up enqueueing hits the real job DB; covered by its own tests.
+        p = mock.patch.object(P, "_enqueue_followups", return_value=[])
+        self.enqueue_followups = p.start()
+        self.addCleanup(p.stop)
 
     def _routing_lines(self):
         text = P.ROUTING_LOG_PATH.read_text(encoding="utf-8")
@@ -148,10 +152,36 @@ class TestCommitStageParity(unittest.TestCase):
         stage_path = _stage_record(self.tmp, triage)
         with mock.patch("scripts.macro.use_category") as use_cat, \
                 mock.patch("scripts.macro._rebuild_macro_summary") as rebuild, \
+                mock.patch("scripts.macro._rebuild_author_summary") as rebuild_author, \
+                mock.patch("scripts.macro._update_themes") as update_themes, \
                 mock.patch("scripts.authors.canonicalize_author", side_effect=lambda a: a):
             P._commit_stage(stage_path, notify=False)
         use_cat.assert_called_once_with("Semis")
         rebuild.assert_called_once()
+        # Author views aggregate from note JSONs — the author dir (notes/..)
+        # must be rebuilt before the category rollup.
+        (author_dir,) = rebuild_author.call_args.args
+        self.assertEqual(author_dir.name, "Some Author")
+        update_themes.assert_called_once()
+
+    def test_followups_enqueued_for_stored_but_not_bulk_or_held(self):
+        held = {
+            "primary_type": "single_name", "primary_subject": "FAKE",
+            "confidence": "low", "tickers_covered": [], "themes_touched": [],
+        }
+        with mock.patch("scripts.notify.telegram_send_with_buttons", return_value=True):
+            P._commit_stage(_stage_record(self.tmp, held))
+        self.enqueue_followups.assert_not_called()
+
+        stored = dict(held, confidence="high")
+        stage_path = _stage_record(self.tmp, stored)
+        with mock.patch("scripts.research.rebuild_summary"):
+            P._commit_stage(stage_path, analyse=False)
+        self.enqueue_followups.assert_not_called()
+        with mock.patch("scripts.research.rebuild_summary"):
+            row = P._commit_stage(stage_path)
+        self.enqueue_followups.assert_called_once()
+        self.assertEqual(row["followup_jobs"], [])
 
 
 if __name__ == "__main__":
