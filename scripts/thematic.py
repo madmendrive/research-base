@@ -53,8 +53,9 @@ def _load_theme_config(theme):
     path = THEMATIC_DIR / theme / "linked_tickers.json"
     if not path.exists():
         return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    # errors="replace": a few configs written before the encoding fixes
+    # carry stray cp1252 bytes.
+    return json.loads(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def _save_theme_config(theme, config):
