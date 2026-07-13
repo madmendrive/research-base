@@ -223,8 +223,16 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
     chunk_bytes = 0
     skipped = 0
     prompt_chars = 0
+    build_errors: list[str] = []
     for pair in pairs:
-        request = _build_request(pair, text_cache)
+        try:
+            request = _build_request(pair, text_cache)
+        except Exception as e:
+            # One unreadable doc/summary must not kill an hour-long submit.
+            skipped += 1
+            build_errors.append(
+                f"{pair['file']} -> {pair['kind']}/{pair['target']}: {type(e).__name__}: {e}")
+            continue
         if request is None:
             skipped += 1
             continue
@@ -263,6 +271,7 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
         "pending_pairs": len(pairs),
         "requests": sum(len(c) for c in chunks),
         "skipped": skipped,
+        "build_errors": build_errors[:20],
         "batches": batch_ids,
         "estimated_cost_usd": round(
             (prompt_chars / 4) * _INPUT_USD_PER_TOK
