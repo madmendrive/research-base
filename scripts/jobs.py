@@ -452,6 +452,18 @@ def _process_job(job: dict) -> str:
             report = _cross_analyse_theme(payload["target"], path)
         return f"cross-cut {payload['kind']}:{payload['target']} ({len(report)} chars)"
 
+    if kind == "batch_cross_cut_apply":
+        from scripts.batch_cross_cut import apply_batches
+
+        result = apply_batches()
+        if payload.get("notify", True):
+            telegram_send(
+                "Batch cross-cut apply: "
+                + json.dumps({k: v for k, v in result.items() if k != "errors"},
+                             ensure_ascii=False)
+                + ("\nErrors:\n" + "\n".join(result["errors"]) if result.get("errors") else ""))
+        return json.dumps(result)
+
     if kind == "batch_second_pass_apply":
         from scripts.batch_pass import apply_batch
 

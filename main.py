@@ -945,6 +945,35 @@ def batch_second_pass_cmd(submit, status_, apply_, batch_id, since, limit, dry_r
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+@cli.command("batch-cross-cut")
+@click.option("--submit", "submit", is_flag=True, help="Build one request per pending pair and submit size-capped batches (50% token cost).")
+@click.option("--status", "status_", is_flag=True, help="Show processing status of submitted batches.")
+@click.option("--apply", "apply_", is_flag=True, help="Enqueue the heavy-lane job that writes analyses + marks pairs done.")
+@click.option("--limit", default=0, help="Cap the number of pairs submitted (0 = all).")
+@click.option("--dry-run", is_flag=True, help="Count pending pairs + estimate cost; no submission.")
+def batch_cross_cut_cmd(submit, status_, apply_, limit, dry_run):
+    """Backfill corpus cross-cuts via the Message Batches API."""
+    from scripts.batch_cross_cut import batch_status, submit_batches
+
+    if apply_:
+        from datetime import datetime
+
+        from scripts.jobs import enqueue_job
+
+        job_id = enqueue_job(
+            "batch_cross_cut_apply",
+            {"notify": True},
+            dedupe_key=f"batch_cross_cut_apply:{datetime.now().strftime('%Y-%m-%d_%H%M')}",
+        )
+        click.echo(json.dumps({"queued_job": job_id}, indent=2))
+        return
+    if submit or dry_run:
+        stats = submit_batches(limit=limit, dry_run=dry_run and not submit)
+    else:
+        stats = batch_status()
+    click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
+
+
 @cli.command("gmail-auth")
 @click.option("--client-secret", default=None,
               help="Path to Google Desktop OAuth client secret JSON.")
