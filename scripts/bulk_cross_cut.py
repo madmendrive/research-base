@@ -99,16 +99,18 @@ def _fast_ingest_records() -> dict:
             "source_path": rec.get("stored_path") or staged.get("source_path", ""),
             "primary_type": triage.get("primary_type", ""),
             "primary_subject": triage.get("primary_subject", ""),
-            "tickers_covered": [
+            # dict.fromkeys: triage theme lists are not deduped upstream —
+            # a repeated theme would yield the same pair twice.
+            "tickers_covered": list(dict.fromkeys(
                 t for t in triage.get("tickers_covered") or []
                 if ticker_mat.get(t, "significant") != "passing"
                 and (canonicalize_ticker(t) or t) in covered
-            ],
-            "themes_touched": [
+            )),
+            "themes_touched": list(dict.fromkeys(
                 t for t in triage.get("themes_touched") or []
                 if theme_mat.get(t, "significant") != "passing"
                 and t in known_themes
-            ],
+            )),
         }
     return records
 
