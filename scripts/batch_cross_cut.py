@@ -36,8 +36,14 @@ STATE_PATH = DATA_DIR / "_batch_cross_cut_batches.json"
 
 DOC_TEXT_CAP = 30_000        # chars — matches the classic cached_document_block usage
 EXTRACTION_CAP = 20_000      # chars of stored extraction JSON per prompt
+TICKER_SUMMARY_CAP = 40_000  # chars of the target ticker's summary JSON
 MAX_BATCH_BYTES = 150 * 1024 * 1024  # stay well under the API's 256 MB limit
 MAX_BATCH_REQUESTS = 10_000
+# Hard spend guard: with all caps applied no request should approach this;
+# one exceeding it means a prompt builder regressed — abort, don't upload.
+# (Uncapped theme prompts once hit ~1.8MB each and 10x'd the estimated cost.)
+MAX_REQUEST_BYTES = 600_000
+DRY_RUN_SAMPLE = 24
 
 # Opus batch pricing: 50% of $5/$25 per MTok.
 _INPUT_USD_PER_TOK = 5.0 / 1_000_000 * 0.5
@@ -116,9 +122,11 @@ def _ticker_prompt(target: str, extraction: str | None) -> str | None:
         prompt += f"\n\n--- NEW RESEARCH (structured extraction) ---\n{extraction}\n"
     else:
         prompt += "\n\n--- NEW RESEARCH ---\nNo structured extraction available; rely on the document text in the system context.\n"
+    from scripts.thematic import capped_json
+
     summary = _load_json_if_exists(DATA_DIR / target / "research" / "summary.json")
     if summary:
-        prompt += f"\n--- EXISTING RESEARCH SUMMARY ---\n{json.dumps(summary, indent=2)}\n"
+        prompt += f"\n--- EXISTING RESEARCH SUMMARY ---\n{capped_json(summary, TICKER_SUMMARY_CAP)}\n"
     else:
         prompt += "\n--- EXISTING RESEARCH SUMMARY ---\nNo existing research stored for this ticker.\n"
     prompt += "\nThe raw text of the new research is provided between <document> tags in the system context, for additional detail.\n"
@@ -127,7 +135,14 @@ def _ticker_prompt(target: str, extraction: str | None) -> str | None:
 
 def _theme_prompt(target: str, extraction: str | None) -> str | None:
     from scripts.research import _load_companies
-    from scripts.thematic import ANALYSE_THEMATIC_PROMPT, _load_theme_config
+    from scripts.thematic import (
+        ANALYSE_THEMATIC_PROMPT,
+        LINKED_SUMMARY_CAP,
+        LINKED_TOTAL_CAP,
+        THEME_SUMMARY_CAP,
+        _load_theme_config,
+        capped_json,
+    )
 
     config = _load_theme_config(target)
     if not config:
@@ -139,18 +154,23 @@ def _theme_prompt(target: str, extraction: str | None) -> str | None:
         prompt += "\n\n--- NEW THEMATIC RESEARCH ---\nNo structured extraction available; rely on the document text in the system context.\n"
     summary = _load_json_if_exists(DATA_DIR / "Thematic" / target / "theme_summary.json")
     if summary:
-        prompt += f"\n--- EXISTING THEMATIC SUMMARY ---\n{json.dumps(summary, indent=2)}\n"
+        prompt += f"\n--- EXISTING THEMATIC SUMMARY ---\n{capped_json(summary, THEME_SUMMARY_CAP)}\n"
     else:
         prompt += f"\n--- EXISTING THEMATIC SUMMARY ---\nNo existing thematic research stored for {config['theme']}.\n"
     prompt += "\n--- LINKED COMPANY RESEARCH ---\n"
     companies = _load_companies()
+    linked_chars = 0
     for lt in config.get("linked_tickers", []):
         ticker = lt["ticker"]
         name = companies.get(ticker, {}).get("name", ticker)
         sn = _load_json_if_exists(DATA_DIR / ticker / "research" / "summary.json")
-        if sn:
+        if sn and linked_chars < LINKED_TOTAL_CAP:
+            snippet = capped_json(sn, LINKED_SUMMARY_CAP)
+            linked_chars += len(snippet)
             prompt += f"\n### {ticker} ({name}) — Single-Name Research Summary:\n"
-            prompt += json.dumps(sn, indent=2) + "\n"
+            prompt += snippet + "\n"
+        elif sn:
+            prompt += f"\n### {ticker} ({name}): summary omitted for prompt budget.\n"
         else:
             prompt += f"\n### {ticker} ({name}): No single-name research stored.\n"
     prompt += "\nThe raw text of the new thematic research is provided between <document> tags in the system context, for additional detail.\n"
@@ -205,15 +225,42 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
     a full-corpus submit takes a while."""
     pairs = pending_pairs(limit=limit)
     if dry_run:
-        # No text extraction on dry-run; assume capped doc text for the estimate.
-        est_in_chars = sum(
-            DOC_TEXT_CAP + EXTRACTION_CAP + 15_000  # doc + extraction + prompt/summary ballpark
-            for _ in pairs)
+        # Price from REAL assembled requests, sampled per kind — a flat
+        # per-pair constant under-estimated the theme slice 15x once.
+        by_kind: dict[str, list[dict]] = {"ticker": [], "theme": []}
+        for p in pairs:
+            by_kind[p["kind"]].append(p)
+        text_cache: dict[str, str] = {}
+        est_total = 0.0
+        sizes = {}
+        for kind, kind_pairs in by_kind.items():
+            if not kind_pairs:
+                continue
+            step = max(1, len(kind_pairs) // DRY_RUN_SAMPLE)
+            sample = kind_pairs[::step][:DRY_RUN_SAMPLE]
+            sample_bytes = []
+            for p in sample:
+                try:
+                    req = _build_request(p, text_cache)
+                except Exception:
+                    continue
+                if req is not None:
+                    sample_bytes.append(len(json.dumps(req, ensure_ascii=False).encode("utf-8")))
+            if not sample_bytes:
+                continue
+            avg = sum(sample_bytes) / len(sample_bytes)
+            sizes[kind] = {
+                "sampled": len(sample_bytes),
+                "avg_request_kb": round(avg / 1024, 1),
+                "max_request_kb": round(max(sample_bytes) / 1024, 1),
+            }
+            est_total += len(kind_pairs) * (
+                (avg / 4) * _INPUT_USD_PER_TOK
+                + _EST_OUTPUT_TOKENS * _OUTPUT_USD_PER_TOK)
         return {
             "pending_pairs": len(pairs),
-            "estimated_cost_usd": round(
-                (est_in_chars / 4) * _INPUT_USD_PER_TOK
-                + len(pairs) * _EST_OUTPUT_TOKENS * _OUTPUT_USD_PER_TOK, 2),
+            "request_sizes": sizes,
+            "estimated_cost_usd": round(est_total, 2),
             "dry_run": True,
         }
 
@@ -244,6 +291,11 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
             continue
         seen_ids.add(cid)
         size = len(json.dumps(request, ensure_ascii=False).encode("utf-8"))
+        if size > MAX_REQUEST_BYTES:
+            raise RuntimeError(
+                f"request for {pair['file']} -> {pair['kind']}/{pair['target']} is "
+                f"{size / 1024:.0f} KB (> {MAX_REQUEST_BYTES // 1024} KB cap). A prompt "
+                "builder is embedding unbounded context — refusing to submit.")
         if chunks[-1] and (chunk_bytes + size > MAX_BATCH_BYTES
                            or len(chunks[-1]) >= MAX_BATCH_REQUESTS):
             chunks.append([])
