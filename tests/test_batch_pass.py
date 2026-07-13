@@ -138,8 +138,8 @@ class TestFastIngestCorpus(unittest.TestCase):
                 "source_path": str(data / "inbox" / "x.pdf"),
                 "triage": {
                     "primary_type": "single_name", "primary_subject": "FAKE",
-                    "tickers_covered": ["FAKE", "OTHER", "NOISE"],
-                    "themes_touched": ["Memory"],
+                    "tickers_covered": ["FAKE", "OTHER", "NOISE", "OTHER"],
+                    "themes_touched": ["Memory", "Memory"],
                     "materiality": {"tickers": {"NOISE": "passing"}, "themes": {}},
                 },
             }), encoding="utf-8")

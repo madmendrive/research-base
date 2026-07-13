@@ -224,7 +224,13 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
     skipped = 0
     prompt_chars = 0
     build_errors: list[str] = []
+    seen_ids: set[str] = set()
     for pair in pairs:
+        cid = _custom_id(pair)
+        if cid in seen_ids:
+            # Duplicate pair (the API rejects duplicate custom_ids per batch).
+            skipped += 1
+            continue
         try:
             request = _build_request(pair, text_cache)
         except Exception as e:
@@ -236,6 +242,7 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
         if request is None:
             skipped += 1
             continue
+        seen_ids.add(cid)
         size = len(json.dumps(request, ensure_ascii=False).encode("utf-8"))
         if chunks[-1] and (chunk_bytes + size > MAX_BATCH_BYTES
                            or len(chunks[-1]) >= MAX_BATCH_REQUESTS):
