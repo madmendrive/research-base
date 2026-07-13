@@ -52,6 +52,30 @@ class TestEnqueueFollowups(unittest.TestCase):
         self.assertEqual(queued, ["cross_cut:ticker:FAKE"])
 
 
+class TestBackgroundKindPriority(unittest.TestCase):
+    def test_time_sensitive_jobs_claim_before_background_analysis(self):
+        from scripts import jobs
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        db = Path(self._tmp.name) / "kb.sqlite"
+        real_connect = jobs.kb.connect
+        with mock.patch.object(jobs.kb, "connect", lambda db_path=None: real_connect(db)):
+            # Backfill analysis enqueued first (lower ids), sweep after.
+            jobs.enqueue_job("cross_cut", {"kind": "ticker", "target": "T", "path": "x"})
+            jobs.enqueue_job("view_evolution", {"json_path": "x"})
+            jobs.enqueue_job("headline_sweep", {"slot": "morning"})
+            conn = jobs.kb.connect()
+            try:
+                first = jobs._claim_next(conn)
+                second = jobs._claim_next(conn)
+                self.assertEqual(first["kind"], "headline_sweep")
+                # Background work resumes once nothing urgent is queued (FIFO).
+                self.assertEqual(second["kind"], "cross_cut")
+            finally:
+                conn.close()
+
+
 class TestRunSecondPass(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

@@ -188,6 +188,18 @@ def queued_summary(limit: int = 20) -> list[dict]:
         conn.close()
 
 
+# Deferrable analysis kinds run only when nothing time-sensitive is queued.
+# A 51-file weekend folder scan once enqueued ~235 of these ahead of the
+# morning headline sweep, delaying the brief by hours — sweeps, ingests, and
+# digests must never wait behind backfill-style Opus work.
+BACKGROUND_KINDS = (
+    "view_evolution",
+    "cross_cut",
+    "batch_second_pass_apply",
+    "batch_cross_cut_apply",
+)
+
+
 def _claim_next(conn, kinds: list[str] | None = None,
                 exclude_kinds: list[str] | None = None):
     _init_jobs(conn)
@@ -199,12 +211,13 @@ def _claim_next(conn, kinds: list[str] | None = None,
     if exclude_kinds:
         where += f" AND kind NOT IN ({','.join('?' for _ in exclude_kinds)})"
         params.extend(exclude_kinds)
+    background = ",".join(f"'{k}'" for k in BACKGROUND_KINDS)
     conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
         f"""
         SELECT * FROM jobs
         WHERE {where}
-        ORDER BY id
+        ORDER BY CASE WHEN kind IN ({background}) THEN 1 ELSE 0 END, id
         LIMIT 1
         """,
         params,
