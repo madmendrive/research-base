@@ -60,6 +60,51 @@ class TestRequestBuilding(unittest.TestCase):
             self.assertIsNone(BC._build_request(_pair(src=str(bare)), {str(bare): ""}))
 
 
+class TestPromptCaps(unittest.TestCase):
+    def test_theme_prompt_caps_linked_summaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            theme_dir = data / "Thematic" / "TestTheme"
+            theme_dir.mkdir(parents=True)
+            (theme_dir / "linked_tickers.json").write_text(json.dumps({
+                "theme": "TestTheme",
+                "linked_tickers": [{"ticker": "BIG", "relevance": "r"},
+                                   {"ticker": "SMALL", "relevance": "r"}],
+            }), encoding="utf-8")
+            big = data / "BIG" / "research"
+            big.mkdir(parents=True)
+            (big / "summary.json").write_text(
+                json.dumps({"pad": "x" * 200_000}), encoding="utf-8")
+            small = data / "SMALL" / "research"
+            small.mkdir(parents=True)
+            (small / "summary.json").write_text(json.dumps({"ok": 1}), encoding="utf-8")
+            import scripts.thematic as thematic
+            with mock.patch.object(BC, "DATA_DIR", data), \
+                    mock.patch.object(thematic, "THEMATIC_DIR", data / "Thematic"), \
+                    mock.patch("scripts.research._load_companies",
+                               return_value={"BIG": {"name": "Big"}, "SMALL": {"name": "Small"}}):
+                prompt = BC._theme_prompt("TestTheme", extraction="{}")
+        self.assertIsNotNone(prompt)
+        self.assertIn("[...truncated]", prompt)
+        self.assertIn('"ok": 1', prompt)
+        # The 200KB summary must not survive whole.
+        self.assertLess(len(prompt), 40_000)
+
+    def test_oversized_request_aborts_submit(self):
+        pairs = [_pair()]
+        big_req = {"custom_id": BC._custom_id(pairs[0]),
+                   "params": {"messages": [{"content": "x" * 1000}]}}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(BC, "STATE_PATH", Path(tmp) / "s.json"), \
+                mock.patch.object(BC, "MAX_REQUEST_BYTES", 500), \
+                mock.patch.object(BC, "pending_pairs", return_value=pairs), \
+                mock.patch.object(BC, "_build_request", return_value=big_req), \
+                mock.patch.object(BC, "_client") as client:
+            with self.assertRaises(RuntimeError):
+                BC.submit_batches()
+            client.assert_not_called()  # aborted before any upload
+
+
 class TestSubmitChunking(unittest.TestCase):
     def test_requests_split_when_size_cap_exceeded(self):
         pairs = [_pair(digest=str(i) * 64, target=f"T{i}") for i in range(3)]

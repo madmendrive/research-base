@@ -49,6 +49,23 @@ def _today_prefix():
     return datetime.now().strftime("%Y-%m-%d")
 
 
+# Prompt-size caps for the cross-reference analysis. Uncapped, a theme with
+# 22 linked companies embedded ~1.8MB (~450K tokens) of summary JSON per call
+# — the 2026-07-13 batch top-up cost 10x its estimate that way. The analysis
+# needs each summary's head (consensus estimates, ratings, recent views), not
+# the full aggregation.
+THEME_SUMMARY_CAP = 20_000     # chars of the theme's own summary JSON
+LINKED_SUMMARY_CAP = 6_000     # chars per linked company summary JSON
+LINKED_TOTAL_CAP = 90_000      # chars across all linked company summaries
+
+
+def capped_json(obj, cap: int) -> str:
+    text = json.dumps(obj, indent=2, ensure_ascii=False)
+    if len(text) <= cap:
+        return text
+    return text[:cap] + "\n[...truncated]"
+
+
 def _load_theme_config(theme):
     path = THEMATIC_DIR / theme / "linked_tickers.json"
     if not path.exists():
@@ -799,18 +816,23 @@ def analyse_thematic(theme, file_path):
     prompt += f"\n\n--- NEW THEMATIC RESEARCH (structured extraction) ---\n{json.dumps(new_note, indent=2)}\n"
 
     if existing_summary:
-        prompt += f"\n--- EXISTING THEMATIC SUMMARY ---\n{json.dumps(existing_summary, indent=2)}\n"
+        prompt += f"\n--- EXISTING THEMATIC SUMMARY ---\n{capped_json(existing_summary, THEME_SUMMARY_CAP)}\n"
     else:
         prompt += f"\n--- EXISTING THEMATIC SUMMARY ---\nNo existing thematic research stored for {theme_name}.\n"
 
     prompt += "\n--- LINKED COMPANY RESEARCH ---\n"
     companies = _load_companies()
+    linked_chars = 0
     for lt in config.get("linked_tickers", []):
         ticker = lt["ticker"]
         name = companies.get(ticker, {}).get("name", ticker)
-        if ticker in company_summaries:
+        if ticker in company_summaries and linked_chars < LINKED_TOTAL_CAP:
+            snippet = capped_json(company_summaries[ticker], LINKED_SUMMARY_CAP)
+            linked_chars += len(snippet)
             prompt += f"\n### {ticker} ({name}) — Single-Name Research Summary:\n"
-            prompt += json.dumps(company_summaries[ticker], indent=2) + "\n"
+            prompt += snippet + "\n"
+        elif ticker in company_summaries:
+            prompt += f"\n### {ticker} ({name}): summary omitted for prompt budget.\n"
         else:
             prompt += f"\n### {ticker} ({name}): No single-name research stored.\n"
 
