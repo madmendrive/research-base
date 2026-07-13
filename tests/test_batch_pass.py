@@ -155,7 +155,9 @@ class TestFastIngestCorpus(unittest.TestCase):
                     mock.patch("scripts.triage._load_companies",
                                return_value={t: {} for t in known}), \
                     mock.patch("scripts.triage._existing_themes",
-                               return_value=["Memory"]):
+                               return_value=["Memory"]), \
+                    mock.patch("scripts.thematic._load_theme_config",
+                               return_value={"theme": "Memory"}):
                 records = CC._fast_ingest_records()
         self.assertEqual(list(records), [digest])
         rec = records[digest]

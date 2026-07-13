@@ -18,7 +18,9 @@ class TestEnqueueFollowups(unittest.TestCase):
         with mock.patch("scripts.jobs.enqueue_job", return_value=1) as enq, \
                 mock.patch("scripts.triage._load_companies",
                            return_value={t: {} for t in known}), \
-                mock.patch("scripts.triage._existing_themes", return_value=["Memory"]):
+                mock.patch("scripts.triage._existing_themes", return_value=["Memory"]), \
+                mock.patch("scripts.thematic._load_theme_config",
+                           return_value={"theme": "Memory"}):
             queued = P._enqueue_followups(triage, digest, dest, json_path)
         return queued, enq
 
