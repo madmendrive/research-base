@@ -174,6 +174,30 @@ def _derive_pairs(bulk_state: dict, cc_state: dict, fallback_folder: Path | None
     return pairs
 
 
+def merged_corpus_state() -> dict:
+    """Corpus = classic bulk-ingest docs + fast-ingested docs. Classic records
+    win on digest collision (they carry the original source_path). Note: docs
+    cross-cut by the real-time cross_cut jobs (Phase 2 of pipeline
+    unification) are tracked in the jobs table, not here — re-running their
+    pairs is harmless (analyse_* just writes another analysis file) but costs
+    a call; review the plan when in doubt."""
+    bulk_state = _load_state(BULK_STATE_PATH) if BULK_STATE_PATH.exists() else {}
+    fast_records = _fast_ingest_records()
+    if fast_records:
+        bulk_state = dict(bulk_state)
+        bulk_state["processed"] = {**fast_records, **bulk_state.get("processed", {})}
+    return bulk_state
+
+
+def derive_all_pairs(fallback_folder: Path | None = None):
+    """(pending pairs, cc_state, corpus size) over the merged corpus —
+    shared by the realtime runner and the batch backfill."""
+    bulk_state = merged_corpus_state()
+    cc_state = _load_state(CC_STATE_PATH)
+    pairs = _derive_pairs(bulk_state, cc_state, fallback_folder)
+    return pairs, cc_state, len(bulk_state.get("processed", {}))
+
+
 # ---------------------------------------------------------------------------
 # Telegram notify (reuses bulk-ingest helper)
 # ---------------------------------------------------------------------------
@@ -201,28 +225,12 @@ def bulk_cross_cut(folder: str = "", dry_run: bool = False, limit: int = 0,
     import click
     from scripts.bot_pipeline import _cross_analyse_ticker, _cross_analyse_theme
 
-    bulk_state = _load_state(BULK_STATE_PATH) if BULK_STATE_PATH.exists() else {}
-    cc_state = _load_state(CC_STATE_PATH)
-
-    # Corpus = classic bulk-ingest docs + fast-ingested docs. Classic records
-    # win on digest collision (they carry the original source_path). Note:
-    # docs cross-cut by the real-time cross_cut jobs (Phase 2 of pipeline
-    # unification) are tracked in the jobs table, not here — re-running their
-    # pairs is harmless (analyse_* just writes another analysis file) but
-    # costs a call; use --limit / review the plan when in doubt.
-    fast_records = _fast_ingest_records()
-    if fast_records:
-        bulk_state = dict(bulk_state)
-        bulk_state["processed"] = {**fast_records, **bulk_state.get("processed", {})}
-    if not bulk_state.get("processed"):
+    fallback = Path(folder).expanduser().resolve() if folder else None
+    pairs, cc_state, total_in_corpus = derive_all_pairs(fallback)
+    if total_in_corpus == 0:
         click.echo("No ingested documents found in _bulk_ingest_state.json or "
                    "_fast_ingest_state.json. Run an ingest first.")
         raise SystemExit(1)
-
-    fallback = Path(folder).expanduser().resolve() if folder else None
-
-    pairs = _derive_pairs(bulk_state, cc_state, fallback)
-    total_in_corpus = len(bulk_state.get("processed", {}))
 
     if not pairs:
         click.echo(f"Nothing to cross-cut. Corpus size: {total_in_corpus} doc(s). "
