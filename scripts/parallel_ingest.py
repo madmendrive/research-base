@@ -510,9 +510,13 @@ def _enqueue_followups(triage: dict[str, Any], digest: str, dest: Path,
             dedupe_key=f"view_evolution:{digest}",
         )
         queued.append("view_evolution")
+    from scripts.thematic import _load_theme_config
     from scripts.triage import _existing_themes, _load_companies
 
-    known_themes = set(_existing_themes())
+    # A theme is a valid cross-cut target only with a linked_tickers.json —
+    # analyse_thematic exits without one, so a job against a configless dir
+    # (fast-created for an invented theme) would burn all three attempts.
+    known_themes = {t for t in _existing_themes() if _load_theme_config(t)}
     covered = set(_load_companies())
     for _label, kind, target in _derive_secondaries(triage):
         # Triage can name tickers outside the coverage universe or invented

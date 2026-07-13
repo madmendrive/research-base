@@ -62,6 +62,7 @@ def _fast_ingest_records() -> dict:
     materiality-gated here (mirroring bot_pipeline._derive_secondaries);
     passing mentions never become pairs. The stored copy is used as the
     source PDF — inbox originals may have moved since ingestion."""
+    from scripts.thematic import _load_theme_config
     from scripts.tickers import canonicalize_ticker
     from scripts.triage import _existing_themes, _load_companies
 
@@ -76,8 +77,10 @@ def _fast_ingest_records() -> dict:
     # companies outside the coverage universe. Cross-cutting those would
     # create junk entity dirs — gate targets to known tickers/themes.
     # canonicalize_ticker normalizes but returns unknowns unchanged, so
-    # coverage is a companies.json membership check.
-    known_themes = set(_existing_themes())
+    # coverage is a companies.json membership check. Themes additionally
+    # need a linked_tickers.json — fast-created dirs for invented themes
+    # have none, and the analysis prompt can't be built without it.
+    known_themes = {t for t in _existing_themes() if _load_theme_config(t)}
     covered = set(_load_companies())
     records = {}
     for digest, rec in (state.get("committed") or {}).items():
