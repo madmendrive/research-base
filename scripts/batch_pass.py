@@ -96,8 +96,10 @@ def _custom_id(json_path: str) -> str:
     return hashlib.sha256(json_path.encode("utf-8", errors="replace")).hexdigest()[:24]
 
 
-def submit_batch(since: str = "", limit: int = 0, dry_run: bool = False) -> dict:
-    """Build prompts for every pending note and submit one message batch."""
+def submit_batch(since: str = "", limit: int = 0, dry_run: bool = False,
+                 max_cost_usd: float = 100.0) -> dict:
+    """Build prompts for every pending note and submit one message batch.
+    max_cost_usd: abort before upload if the measured estimate exceeds it."""
     from scripts.research import SYNTHESIS_MODEL
 
     notes = scan_pending_notes(since=since, limit=limit)
@@ -136,6 +138,11 @@ def submit_batch(since: str = "", limit: int = 0, dry_run: bool = False) -> dict
     }
     if dry_run or not requests:
         return stats
+    if est_cost > max_cost_usd:
+        raise RuntimeError(
+            f"Measured estimate ${est_cost} for {len(requests)} requests exceeds the "
+            f"${max_cost_usd} ceiling — nothing submitted. Re-run with a higher "
+            "--max-cost after confirming the spend.")
 
     batch = _client().messages.batches.create(requests=requests)
     state = _load_state()

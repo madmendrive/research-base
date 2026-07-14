@@ -922,7 +922,9 @@ def email_sweep_cmd(once, notify, limit, analyse_attachments, no_extract_researc
 @click.option("--since", default="", help="Only notes stored on/after this date prefix (YYYY-MM-DD).")
 @click.option("--limit", default=0, help="Cap the number of notes submitted (0 = all).")
 @click.option("--dry-run", is_flag=True, help="Count pending notes + estimate cost; no submission.")
-def batch_second_pass_cmd(submit, status_, apply_, batch_id, since, limit, dry_run):
+@click.option("--max-cost", default=100.0, show_default=True,
+              help="Abort submit if the measured cost estimate exceeds this (USD).")
+def batch_second_pass_cmd(submit, status_, apply_, batch_id, since, limit, dry_run, max_cost):
     """Backfill Opus view-evolution second passes via the Message Batches API."""
     from scripts.batch_pass import batch_status, submit_batch
 
@@ -939,7 +941,8 @@ def batch_second_pass_cmd(submit, status_, apply_, batch_id, since, limit, dry_r
         click.echo(json.dumps({"queued_job": job_id}, indent=2))
         return
     if submit or dry_run:
-        stats = submit_batch(since=since, limit=limit, dry_run=dry_run and not submit)
+        stats = submit_batch(since=since, limit=limit, dry_run=dry_run and not submit,
+                             max_cost_usd=max_cost)
     else:
         stats = batch_status(batch_id)
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
@@ -951,7 +954,9 @@ def batch_second_pass_cmd(submit, status_, apply_, batch_id, since, limit, dry_r
 @click.option("--apply", "apply_", is_flag=True, help="Enqueue the heavy-lane job that writes analyses + marks pairs done.")
 @click.option("--limit", default=0, help="Cap the number of pairs submitted (0 = all).")
 @click.option("--dry-run", is_flag=True, help="Count pending pairs + estimate cost; no submission.")
-def batch_cross_cut_cmd(submit, status_, apply_, limit, dry_run):
+@click.option("--max-cost", default=100.0, show_default=True,
+              help="Abort submit if the measured cost estimate exceeds this (USD).")
+def batch_cross_cut_cmd(submit, status_, apply_, limit, dry_run, max_cost):
     """Backfill corpus cross-cuts via the Message Batches API."""
     from scripts.batch_cross_cut import batch_status, submit_batches
 
@@ -968,7 +973,8 @@ def batch_cross_cut_cmd(submit, status_, apply_, limit, dry_run):
         click.echo(json.dumps({"queued_job": job_id}, indent=2))
         return
     if submit or dry_run:
-        stats = submit_batches(limit=limit, dry_run=dry_run and not submit)
+        stats = submit_batches(limit=limit, dry_run=dry_run and not submit,
+                               max_cost_usd=max_cost)
     else:
         stats = batch_status()
     click.echo(json.dumps(stats, indent=2, ensure_ascii=False))
