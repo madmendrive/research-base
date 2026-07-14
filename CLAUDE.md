@@ -203,9 +203,75 @@ After `folder_scan` with `notify=True` queues new files:
 6. **Inline-keyboard confirmation for held files** — v1 sends text-only "held for review" Telegram message. v2 should send `[Confirm] [Reclassify] [Drop]` inline buttons.
 7. **Standalone inbox digest failure mode** — non-combined folder-scan digests still require every `ingest_file` job to succeed before sending (combined-mode digests are covered by the failsafe + terminal-failure notices as of 2026-07-02).
 8. **CJK FTS tokenization** — `_fts_query` extracts only `[A-Za-z0-9_]+` tokens and the FTS table uses unicode61, so all-Chinese queries get zero keyword hits (the full-corpus vector scan now covers them semantically, but `name_zh` keyword search remains a gap).
+12. **Tech-brief degradation is silent** — headline summarization/translation is a Sonnet call inside the sweep; on API failure (e.g. the 2026-07-13/14 credit outage) CJK rows fall back to "headline-level flag" placeholder text but the job still reports success and no notice is sent. Fix idea: append a "⚠ summaries degraded" line to the brief / notify when fallback rows exceed a threshold.
 9. **Dual ingest pipelines diverge** — the fast job pipeline (`parallel_ingest`) and the classic pipeline (sweeper/bulk) keep separate SHA-state namespaces. Don't run the sweeper alongside job-based folder scans on the same inbox. *Narrowed 2026-07-12 (Phase 1 parity):* the fast commit now writes `_routing_log.jsonl` (records carry `"pipeline": "fast"`), sends held-for-review Telegram notices with Confirm/Reclassify/Drop buttons, rebuilds per-entity summaries (local aggregation, no API cost), and logs theme proposals to `data/_theme_proposals.jsonl` (announced per-file on job ingests; aggregated into run stats for `bulk-ingest-fast`, which suppresses per-file pings). *Phase 2 (2026-07-13):* fast commits now enqueue the Opus passes as heavy-lane jobs instead of skipping them — one `view_evolution` job per stored note (runs `scripts/second_pass.run_second_pass`: same Opus call + summary-md overwrite + author/theme/entity rebuilds as the classic store paths; idempotent via `metadata.second_pass_done`) and one `cross_cut` job per materiality-gated secondary (reuses `bot_pipeline._cross_analyse_*`). Deduped per document digest; skipped for `news_article` primaries (cross-cuts still run), for held files, and for `bulk-ingest-fast` (bulk-cross-cut covers the corpus; `analyse_followups: false` in an ingest_file payload also disables). Remaining gap: the split SHA namespaces (Phase 3). `bulk-cross-cut` now sees fast-ingested docs too (`_fast_ingest_records` synthesizes classic-shaped corpus records from `_fast_ingest_state.json` + staging triage, materiality-gated, stored copy as source).
 10. **Batch cross-cut backfill** (2026-07-13) — `python main.py batch-cross-cut --dry-run|--submit|--status|--apply [--limit N]` (`scripts/batch_cross_cut.py`; state in `data/_batch_cross_cut_batches.json`). One Opus request per pending pair, submitted in size-capped batches (256 MB API limit); skips the classic per-pair Sonnet extraction — prompts carry the doc's stored extraction JSON plus the raw text (30K cap) in a cached system block. Apply is a heavy-lane `batch_cross_cut_apply` job: writes `analyses/*.md` and marks pairs in the shared `_bulk_cross_cut_state.json` so the realtime runner sees the same done-set; failed pairs stay unmarked for retry.
 11. **Batch second-pass backfill** (2026-07-13) — `python main.py batch-second-pass --dry-run|--submit|--status|--apply [--since YYYY-MM-DD] [--limit N]` runs the view-evolution backlog through the Message Batches API at 50% token cost (`scripts/batch_pass.py`; state in `data/_batch_second_pass_state.json`). `--apply` enqueues a heavy-lane `batch_second_pass_apply` job (single-writer: it edits note JSONs and rebuilds summaries — entity rebuilds are deduped, one per touched entity). Re-running apply is safe: notes stamped `metadata.second_pass_done` are skipped. Batches usually finish within an hour (max 24h); results stay retrievable for 29 days.
+
+## Corpus backfill + batch tooling 2026-07-12..14 (branch worktree-ingest-unify-p1)
+
+Pipeline unification Phases 1+2 (see Known Issue 9) plus a full historical
+backfill through the Message Batches API. State of the corpus after it:
+
+- **View evolution: complete.** All single-name and Semis notes (836 + 498)
+  and all non-News-Article macro/thematic notes carry a second pass
+  (1,564 batched + 31 live July notes). "News Article" pseudo-author notes
+  are excluded by design.
+- **Cross-cuts: ~95% complete.** 2,807 batched pair analyses + top-up
+  batches for the 7 newly-configured themes (746 pairs, see cost incident
+  below) + a final 407-request batch (submitted 2026-07-14, check
+  `batch-cross-cut --status`). After its apply, ~225 canonical-ticker
+  residual pairs become derivable (the canonicalization fix below) — dry-run
+  measures them; expect ~$15-25. Never-eligible leftovers: pairs against
+  junk theme dirs (no `linked_tickers.json`).
+- **Seven official themes got their missing `linked_tickers.json` configs**
+  (2026-07-13 drafts, review welcome): AI Infrastructure, Agentic AI, EDA,
+  AI Inference, Fuel Cells, Data Center Power, Quantum Computing. A theme
+  without a config is never a cross-cut target (analyse_thematic exits
+  without one).
+
+**Cost incident 2026-07-13 and the guards that came out of it.** A theme
+cross-cut batch was estimated at ~$85 and billed ~$920: `_theme_prompt`
+embedded every linked company's full summary.json (~453K tokens/request) and
+the dry-run priced from a flat per-pair constant; the run also drained the
+API credit balance mid-day (degrading Anthropic-side functions — e.g. tech
+brief rows fell back to untranslated placeholder text; that fallback is
+still silent, see Known Issue 12). Guards now in place — keep them:
+- Prompt caps (`thematic.capped_json`): theme summary 20K chars, 6K per
+  linked company summary, 90K linked total; batch ticker summary 40K.
+  Applied in classic `analyse_thematic` AND batch prompts.
+- Batch dry-runs price from REAL assembled sample requests per kind
+  (reporting avg/max request KB); submits hard-abort on any request over
+  600 KB and on measured estimates above `--max-cost` (default $100).
+- **Standing rule: state the measured cost of any spend-incurring run and
+  get approval before executing.**
+
+Other reliability fixes from these sessions:
+- **Heavy-lane claim priority**: `view_evolution` / `cross_cut` /
+  `batch_*_apply` are background kinds — they claim only when nothing
+  time-sensitive is queued (a 51-file weekend scan once put ~235 Opus jobs
+  ahead of the morning headline sweep).
+- **Cross-cut target gates**: ticker targets are canonicalized
+  (triage emits raw names like "TSMC"/"6806 JP") and must be in
+  companies.json; theme targets must have a `linked_tickers.json`. Enforced
+  in both `_enqueue_followups` (realtime) and `_fast_ingest_records` (bulk).
+- Tolerant UTF-8 reads for note JSONs and theme configs (pre-encoding-fix
+  files carry stray cp1252 bytes); batch submits survive per-pair build
+  errors; batch pairs dedupe (the API rejects duplicate custom_ids).
+- Gmail OAuth token refreshed 2026-07-12 after 5 nights of
+  `invalid_grant` email-sweep failures (`python main.py gmail-auth`).
+- `.claude/settings.json` sets `worktree.baseRef: "head"` — the GitHub
+  origin is weeks behind local master; never base work on origin/master.
+- 42 GB pre-migration KB backup deleted 2026-07-12 (health checks clean).
+
+**Housekeeping backlog surfaced by the backfill** (not yet done):
+- 171 of 288 ticker dirs are outside companies.json — junk SZ/HK names plus
+  format duplicates of covered companies (`005930.KS` vs `005930 KS`,
+  `2330.TW` vs `2330 TT`). Merge dupes into canonical dirs, quarantine rest.
+- Junk theme dirs from invented triage themes (Semiconductor, News Article,
+  Memory Market Update, ...) hold ~44 stored notes that deserve refiling.
+- 15 batch-applied notes are stamped done but may lack their summary-md
+  rewrite/theme-file update (apply errors went to Telegram 2026-07-13).
 
 ## Vector index migration 2026-07-03 (branches worktree-vec-migration + worktree-json-drop)
 
