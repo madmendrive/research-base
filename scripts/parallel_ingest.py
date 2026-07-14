@@ -523,9 +523,12 @@ def _enqueue_followups(triage: dict[str, Any], digest: str, dest: Path,
         # themes (the strict theme constraint isn't always obeyed by the fast
         # provider) — cross-cutting those would create junk entity dirs.
         # canonicalize_ticker normalizes but returns unknowns unchanged, so
-        # coverage is a companies.json membership check.
-        if kind == "ticker" and (canonicalize_ticker(target) or target) not in covered:
-            continue
+        # coverage is a companies.json membership check; the job gets the
+        # CANONICAL ticker (raw names like "TSMC" fail company lookups).
+        if kind == "ticker":
+            target = canonicalize_ticker(target) or target
+            if target not in covered:
+                continue
         if kind == "theme" and target not in known_themes:
             continue
         enqueue_job(

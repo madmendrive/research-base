@@ -103,9 +103,13 @@ def _fast_ingest_records() -> dict:
             "primary_type": triage.get("primary_type", ""),
             "primary_subject": triage.get("primary_subject", ""),
             # dict.fromkeys: triage theme lists are not deduped upstream —
-            # a repeated theme would yield the same pair twice.
+            # a repeated theme would yield the same pair twice. Store the
+            # CANONICAL ticker: triage emits raw names ("TSMC", "6806 JP")
+            # that pass the coverage check after canonicalization but then
+            # fail company lookups downstream if kept raw.
             "tickers_covered": list(dict.fromkeys(
-                t for t in triage.get("tickers_covered") or []
+                canonicalize_ticker(t) or t
+                for t in triage.get("tickers_covered") or []
                 if ticker_mat.get(t, "significant") != "passing"
                 and (canonicalize_ticker(t) or t) in covered
             )),
