@@ -217,13 +217,12 @@ backfill through the Message Batches API. State of the corpus after it:
   and all non-News-Article macro/thematic notes carry a second pass
   (1,564 batched + 31 live July notes). "News Article" pseudo-author notes
   are excluded by design.
-- **Cross-cuts: ~95% complete.** 2,807 batched pair analyses + top-up
-  batches for the 7 newly-configured themes (746 pairs, see cost incident
-  below) + a final 407-request batch (submitted 2026-07-14, check
-  `batch-cross-cut --status`). After its apply, ~225 canonical-ticker
-  residual pairs become derivable (the canonicalization fix below) — dry-run
-  measures them; expect ~$15-25. Never-eligible leftovers: pairs against
-  junk theme dirs (no `linked_tickers.json`).
+- **Cross-cuts: COMPLETE (2026-07-15, pending pairs = 0).** 4,158 batched
+  pair analyses applied across 13 batches (2,807 main + 748 theme top-up +
+  405 final + 198 canonical-ticker residual) + 3 realtime = 4,161 analysis
+  files (2,084 ticker, 2,077 theme). The only unanalyzed mentions left are
+  never-eligible ones (junk theme dirs without `linked_tickers.json`,
+  out-of-universe tickers) — excluded at derive time by the target gates.
 - **Seven official themes got their missing `linked_tickers.json` configs**
   (2026-07-13 drafts, review welcome): AI Infrastructure, Agentic AI, EDA,
   AI Inference, Fuel Cells, Data Center Power, Quantum Computing. A theme
