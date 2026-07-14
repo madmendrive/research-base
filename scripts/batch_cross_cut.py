@@ -219,10 +219,15 @@ def pending_pairs(limit: int = 0) -> list[dict]:
     return pairs
 
 
-def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
+def submit_batches(limit: int = 0, dry_run: bool = False,
+                   max_cost_usd: float = 100.0) -> dict:
     """Build one Opus request per pending pair and submit in size-capped
     batches. Building extracts each doc's text once (local, no API cost) —
-    a full-corpus submit takes a while."""
+    a full-corpus submit takes a while.
+
+    max_cost_usd: hard ceiling — after all requests are built (but before
+    anything is uploaded), abort if the measured estimate exceeds it. Raise
+    it explicitly for a deliberately large run."""
     pairs = pending_pairs(limit=limit)
     if dry_run:
         # Price from REAL assembled requests, sampled per kind — a flat
@@ -313,6 +318,16 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
     if not chunks[0]:
         return {"pending_pairs": len(pairs), "requests": 0, "skipped": skipped}
 
+    n_requests = sum(len(c) for c in chunks)
+    est_cost = round(
+        (prompt_chars / 4) * _INPUT_USD_PER_TOK
+        + n_requests * _EST_OUTPUT_TOKENS * _OUTPUT_USD_PER_TOK, 2)
+    if est_cost > max_cost_usd:
+        raise RuntimeError(
+            f"Measured estimate ${est_cost} for {n_requests} requests exceeds the "
+            f"${max_cost_usd} ceiling — nothing submitted. Re-run with a higher "
+            "--max-cost after confirming the spend.")
+
     client = _client()
     state = _load_state()
     batch_ids = []
@@ -328,13 +343,11 @@ def submit_batches(limit: int = 0, dry_run: bool = False) -> dict:
 
     return {
         "pending_pairs": len(pairs),
-        "requests": sum(len(c) for c in chunks),
+        "requests": n_requests,
         "skipped": skipped,
         "build_errors": build_errors[:20],
         "batches": batch_ids,
-        "estimated_cost_usd": round(
-            (prompt_chars / 4) * _INPUT_USD_PER_TOK
-            + sum(len(c) for c in chunks) * _EST_OUTPUT_TOKENS * _OUTPUT_USD_PER_TOK, 2),
+        "estimated_cost_usd": est_cost,
     }
 
 
