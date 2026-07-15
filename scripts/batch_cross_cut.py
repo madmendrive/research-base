@@ -374,7 +374,9 @@ def batch_status() -> dict:
 
 
 def _analysis_path(item: dict) -> Path:
-    stem = Path(item["source_path"]).stem
+    from scripts.kb import capped_stem
+
+    stem = capped_stem(Path(item["source_path"]).stem)
     name = f"{_today_prefix()}_{stem}_analysis.md"
     if item["kind"] == "ticker":
         return DATA_DIR / item["target"] / "research" / "analyses" / name
