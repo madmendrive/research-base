@@ -162,6 +162,20 @@ def text_hash(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8", errors="replace")).hexdigest()
 
 
+def capped_stem(stem: str, max_len: int = 70) -> str:
+    """Cap a filename stem so derived paths stay under Windows MAX_PATH (260).
+
+    Analysis filenames prepend a date and append _analysis.md to stored-note
+    stems that already carry their own date prefix and a full doc title — a
+    150-char title inside data/Thematic/<theme>/analyses/ breaks the save
+    AFTER the Opus call. Truncated stems get a short hash so two docs sharing
+    a long prefix can't collide."""
+    stem = str(stem or "")
+    if len(stem) <= max_len:
+        return stem
+    return f"{stem[:max_len].rstrip(' .')}~{text_hash(stem)[:6]}"
+
+
 def _strip_html(text: str) -> str:
     try:
         from bs4 import BeautifulSoup

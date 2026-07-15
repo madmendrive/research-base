@@ -849,9 +849,11 @@ def analyse_thematic(theme, file_path):
     click.echo(analysis)
 
     # f. Save analysis
+    from scripts.kb import capped_stem
+
     analyses_dir = theme_dir / "analyses"
     analyses_dir.mkdir(parents=True, exist_ok=True)
-    analysis_filename = f"{_today_prefix()}_{src.stem}_analysis.md"
+    analysis_filename = f"{_today_prefix()}_{capped_stem(src.stem)}_analysis.md"
     analysis_path = analyses_dir / analysis_filename
     with open(analysis_path, "w", encoding="utf-8") as f:
         f.write(analysis)

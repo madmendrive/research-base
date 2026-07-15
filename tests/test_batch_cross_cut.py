@@ -105,6 +105,23 @@ class TestPromptCaps(unittest.TestCase):
             client.assert_not_called()  # aborted before any upload
 
 
+class TestAnalysisPathLength(unittest.TestCase):
+    def test_long_stems_are_capped_and_unique(self):
+        from scripts.kb import capped_stem
+
+        long_a = "2026-07-15_Weekly_" + "Meta Capex Defies Cut Fears " * 8 + "A"
+        long_b = long_a[:-1] + "B"  # same long prefix, different tail
+        a, b = capped_stem(long_a), capped_stem(long_b)
+        self.assertLessEqual(len(a), 70 + 7)
+        self.assertNotEqual(a, b)  # hash suffix disambiguates shared prefixes
+        self.assertEqual(capped_stem("short"), "short")
+
+        item = {"source_path": rf"C:\x\notes\{long_a}.pdf",
+                "kind": "theme", "target": "AI Infrastructure"}
+        path = BC._analysis_path(item)
+        self.assertLess(len(str(path)), 220)
+
+
 class TestSubmitChunking(unittest.TestCase):
     def test_requests_split_when_size_cap_exceeded(self):
         pairs = [_pair(digest=str(i) * 64, target=f"T{i}") for i in range(3)]
