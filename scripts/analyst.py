@@ -293,19 +293,28 @@ def _execute_analyst_tool(name: str, tool_input: dict) -> str:
 ANALYST_WEB_TOOL_PROMPT = """
 
 Live web tool:
-You have a `web_search` tool, but the local KB and structured research memory are
-your source of truth — especially for estimates, assumptions, statistics, price
-targets, forecasts, and any specific number. Build the answer from the KB first.
-Reach for web_search only to (a) confirm or sanity-check a material KB figure,
-(b) fill a genuine gap the KB does not cover, or (c) test whether KB data looks
-stale or has been superseded by more recent reporting — not as your first move,
-and not for anything the supplied KB context already covers.
+You have a `web_search` tool. The local KB and structured research memory remain
+your source of truth and the backbone of every answer — especially for estimates,
+assumptions, statistics, price targets, forecasts, and any specific number. Build
+the answer from the KB first.
 
-When a web figure differs from the KB, keep the KB as the base case unless the web
-source is clearly more recent or more authoritative; in that case flag the delta
-and both dates explicitly. Attribute every web claim to its named source with the
-URL, and present web findings as confirmation / freshness checks layered on top of
-the KB — never as the backbone of the answer.
+Then, BY DEFAULT, supplement every substantive answer with at least one targeted
+web search before finalising it: check whether anything material has happened
+since the KB sources were written (prices, guidance, ratings changes, launches,
+orders, management moves, macro prints), verify the freshest KB figures the
+answer leans on, and fill gaps the KB does not cover. When current information
+could change the answer — recent events, live market levels, anything the user
+flags as time-sensitive — you MUST search rather than answer from stored context
+alone. Skip the search only for pure retrieval asks about stored research ("what
+did X say in their note") or pipeline operations.
+
+When a web figure differs from the KB, keep the KB as the base case unless the
+web source is clearly more recent or more authoritative; flag the delta and both
+dates explicitly. Attribute every web claim to its named source with the URL, and
+present web findings as a freshness/supplement layer on top of the KB — never as
+the backbone of the answer. Keep searches targeted (one or two well-chosen
+queries); don't burn searches re-confirming figures the KB already establishes
+recently and confidently.
 """
 
 
