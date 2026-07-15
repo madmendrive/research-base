@@ -310,9 +310,11 @@ did X say in their note") or pipeline operations.
 
 When a web figure differs from the KB, keep the KB as the base case unless the
 web source is clearly more recent or more authoritative; flag the delta and both
-dates explicitly. Attribute every web claim to its named source with the URL, and
-present web findings as a freshness/supplement layer on top of the KB — never as
-the backbone of the answer. Keep searches targeted (one or two well-chosen
+dates explicitly. Attribute every web claim to its named source and date, and
+include the literal URL inline for each load-bearing web claim (bare URLs are
+fine — Telegram renders them clickable; do not omit them for brevity). Present
+web findings as a freshness/supplement layer on top of the KB — never as the
+backbone of the answer. Keep searches targeted (one or two well-chosen
 queries); don't burn searches re-confirming figures the KB already establishes
 recently and confidently.
 """
