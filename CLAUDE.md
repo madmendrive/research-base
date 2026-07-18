@@ -438,10 +438,20 @@ the output budget, so analyst/study `max_tokens` defaults were raised to 8000.
 (`_call_claude_agentic`): `run_pipeline_job` (whitelisted kinds:
 headline/email/folder sweeps + reindexes — "run the tech brief" queues a
 headline_sweep), `pipeline_status`, and `search_kb` follow-up retrieval.
-Falls back to plain single-shot synthesis on any failure or when
-ANALYST_PROVIDER=openai; disable with ANALYST_TOOLS=0. Missed headline
-slots also self-heal: heartbeat catch_up runs same-day missed slots on
-startup.
+Falls back to plain single-shot synthesis on any failure; disable with
+ANALYST_TOOLS=0. Missed headline slots also self-heal: heartbeat catch_up
+runs same-day missed slots on startup.
+
+**Analyst model = `claude-fable-5` (2026-07-18, ANALYST_MODEL in .env)** for
+Q&A + headline/email/research readthroughs — chosen after 4-model side-by-side
+tests (Micron deep dive + email readthrough; outputs in `data/_model_tests/`).
+~2x Opus token cost (~$1.2/deep dive); Fable's safety classifier occasionally
+false-positive-refuses benign content — call_api retries through it. Outage
+fallback: `ANALYST_PROVIDER=openai` + `ANALYST_MODEL=gpt-5.6-terra` now runs a
+full agentic OpenAI analyst (`_call_openai_agentic`, merged 2026-07-19: same
+tools via Responses API + native web_search + memory, state via
+previous_response_id). Single-shot Anthropic-failure fallback model is
+`ANALYST_FALLBACK_MODEL=gpt-5.6-sol`.
 
 ## Worker lanes
 
