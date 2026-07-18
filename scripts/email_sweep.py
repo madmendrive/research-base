@@ -199,6 +199,84 @@ def _memory_scope_from_triage(triage: dict) -> dict:
     return {"corpus_type": "research", "subject_type": "author", "subject": subject}
 
 
+_GENERIC_SENDER_NAMES = {
+    "substack", "newsletter", "noreply", "no-reply", "no reply", "mail",
+    "email", "notifications", "updates", "info", "admin", "support",
+}
+
+
+def _sender_display_name(sender: str) -> str:
+    """Display name from a From header ('Name <addr>' -> 'Name'), cleaned.
+
+    Returns "" when there is no usable publication/author name (bare address,
+    generic mailer names, junk)."""
+    import re
+
+    name = (sender or "").split("<", 1)[0]
+    name = name.replace("\r", " ").replace("\n", " ").strip().strip('"').strip("'").strip()
+    # observed artifact: "Global Semi Research from Global Semi Research"
+    m = re.match(r"^(?P<a>.+?)\s+from\s+(?P=a)$", name, flags=re.IGNORECASE)
+    if m:
+        name = m.group("a").strip()
+    name = re.sub(r"\s+", " ", name)
+    if not name or "@" in name or len(name) < 3 or len(name) > 80:
+        return ""
+    if name.lower() in _GENERIC_SENDER_NAMES:
+        return ""
+    return name
+
+
+def _reconcile_author_scope(scope: dict, sender: str) -> dict:
+    """Trust the sender display name over triage's author pick when they
+    disagree.
+
+    Triage's author inventory is the data/{Macro,Semis}/authors dir listing,
+    so an email-only publication not yet in it gets snapped to the nearest
+    known author (Global Semi Research -> SemiAnalysis, found 2026-07-18).
+    If the sender name is already a known author, use it; if unknown,
+    auto-create its author dir (the email analogue of PDF store paths, which
+    create author dirs on store) so triage knows it from the next sweep on,
+    and send a Telegram notice.
+    """
+    if scope.get("subject_type") != "author":
+        return scope
+    display = _sender_display_name(sender)
+    if not display:
+        return scope
+    from scripts.authors import canonicalize_author
+
+    display = canonicalize_author(display) or display
+    subject = str(scope.get("subject") or "")
+    if display.lower() == subject.lower():
+        return scope
+    from scripts.triage import _existing_macro_authors, _existing_semis_authors
+
+    known = {a.lower(): a for a in _existing_macro_authors() + _existing_semis_authors()}
+    if display.lower() in known:
+        return {**scope, "subject": known[display.lower()]}
+    # Unknown publication: add it under the category triage chose.
+    import re
+
+    safe = re.sub(r"[<>:\"/\\|?*]", " ", display)
+    safe = re.sub(r"\s+", " ", safe).strip().rstrip(".")
+    if not safe:
+        return scope
+    category = "Semis" if scope.get("corpus_type") == "semis" else "Macro"
+    try:
+        (DATA_DIR / category / "authors" / safe / "notes").mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return scope
+    try:
+        telegram_send(
+            f"📁 New research author auto-added from email: {safe} ({category}). "
+            f"Triage will recognise it from the next sweep; rename/merge the "
+            f"folder under data/{category}/authors/ if misfiled."
+        )
+    except Exception:
+        pass
+    return {**scope, "subject": safe}
+
+
 def _extract_structured_email(
     *,
     md_path: Path,
@@ -223,7 +301,10 @@ def _extract_structured_email(
         return {"structured": False, "reason": "empty body"}
 
     pseudo_path = Path(f"{subject or md_path.parent.name}.eml")
-    system, triage_prompt = _triage_prompt(pseudo_path, body_text[:TRIAGE_MAX_CHARS])
+    # Sender identifies the publication — triage previously saw only
+    # subject + body and could snap the author to the nearest known name.
+    triage_text = f"Email from: {sender}\nSubject: {subject}\n\n{body_text}"
+    system, triage_prompt = _triage_prompt(pseudo_path, triage_text[:TRIAGE_MAX_CHARS])
     triage = complete_json(
         triage_prompt,
         config=env_config("TRIAGE", "openai", "gpt-5-mini", timeout=180.0),
@@ -246,7 +327,7 @@ def _extract_structured_email(
     meta["source_type"] = "email_research"
     meta["email_message_id"] = message_id
     meta["email_source_path"] = str(md_path)
-    meta["memory_scope"] = _memory_scope_from_triage(triage)
+    meta["memory_scope"] = _reconcile_author_scope(_memory_scope_from_triage(triage), sender)
     extraction["email_triage"] = triage
 
     json_path = md_path.with_name(md_path.name + ".json")
