@@ -1791,5 +1791,13 @@
   "SBA": {
     "name": "SBA Communications Corp.",
     "market": "US"
+  },
+  "GROQ": {
+    "name": "Groq Inc",
+    "market": "US"
+  },
+  "SIVE": {
+    "name": "Sivers Semiconductor (inferred)",
+    "market": "US"
   }
 }
