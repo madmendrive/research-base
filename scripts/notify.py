@@ -229,14 +229,48 @@ def discord_send(kind: str, text: str) -> bool:
     return ok
 
 
-def _discord_post(url: str, content: str) -> bool:
-    """POST one webhook message; retry 429/5xx/network errors. True on delivered."""
+def discord_channel_send(channel_id: int | str, text: str) -> bool:
+    """Post text to a Discord channel via the bot token (REST, no gateway).
+
+    Used to route job replies (analyses, analyst answers) back to the Discord
+    channel the request came from. Requires DISCORD_BOT_TOKEN; returns False
+    when unset. Failures are logged, never raised.
+    """
+    token = (os.environ.get("DISCORD_BOT_TOKEN") or "").strip()
+    if not token:
+        log.warning("discord_channel_send skipped: DISCORD_BOT_TOKEN not set")
+        return False
+    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+    headers = {"Authorization": f"Bot {token}"}
+    ok = True
+    for piece in chunks(text, size=DISCORD_CHUNK_SIZE):
+        if not _discord_post(url, piece, headers=headers):
+            ok = False
+    return ok
+
+
+def route_reply(reply_via: dict | None, text: str) -> None:
+    """Deliver a job reply to the requesting platform (in addition to the
+    default Telegram send, which callers keep unconditionally).
+
+    reply_via: None (Telegram-only, the default) or
+    {"channel": "discord", "channel_id": <id>} from the Discord bot.
+    """
+    if not reply_via:
+        return
+    if reply_via.get("channel") == "discord" and reply_via.get("channel_id"):
+        discord_channel_send(reply_via["channel_id"], text)
+
+
+def _discord_post(url: str, content: str, headers: dict | None = None) -> bool:
+    """POST one webhook/API message; retry 429/5xx/network errors. True on delivered."""
     last_detail = ""
     for attempt in range(1, MAX_SEND_ATTEMPTS + 1):
         try:
             resp = requests.post(
                 url,
                 json={"content": content, "flags": DISCORD_SUPPRESS_EMBEDS},
+                headers=headers or {},
                 timeout=15,
             )
         except Exception as e:

@@ -775,7 +775,7 @@ def get_email_by_rank(rank: int) -> dict | None:
     return None
 
 
-def analyse_email(key: str, notify: bool = True) -> dict:
+def analyse_email(key: str, notify: bool = True, reply_via: dict | None = None) -> dict:
     item = get_email(key)
     if not item:
         raise FileNotFoundError(f"Email not found for key {key}")
@@ -803,4 +803,7 @@ def analyse_email(key: str, notify: bool = True) -> dict:
     )
     if notify:
         telegram_send_markdownish_html(analysis)
+        from scripts.notify import route_reply
+
+        route_reply(reply_via, analysis)
     return {"key": key, "subject": item.get("subject"), "analysis_path": str(analysis_path)}

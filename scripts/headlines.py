@@ -1819,7 +1819,7 @@ def get_headline_by_rank(rank: int) -> dict | None:
     return None
 
 
-def analyse_headline(key: str, notify: bool = True) -> dict:
+def analyse_headline(key: str, notify: bool = True, reply_via: dict | None = None) -> dict:
     item = get_headline(key)
     if not item:
         raise FileNotFoundError(f"Headline not found for key {key}")
@@ -1839,6 +1839,9 @@ def analyse_headline(key: str, notify: bool = True) -> dict:
     )
     if notify:
         telegram_send_markdownish_html(analysis)
+        from scripts.notify import route_reply
+
+        route_reply(reply_via, analysis)
     return {"key": key, "title": item.get("title"), "analysis_path": str(analysis_path)}
 
 

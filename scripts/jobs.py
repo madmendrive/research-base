@@ -506,7 +506,14 @@ def _process_job(job: dict) -> str:
             log_interaction(question, answer, channel="telegram", user_id=payload.get("user_id"))
         except Exception:
             pass
-        telegram_send_markdownish_html(f"**Q:** {question}\n\n{answer}")
+        reply_text = f"**Q:** {question}\n\n{answer}"
+        reply_via = payload.get("reply_via")
+        if reply_via:
+            from scripts.notify import route_reply
+
+            route_reply(reply_via, reply_text)
+        else:
+            telegram_send_markdownish_html(reply_text)
         return f"answered analyst question ({len(answer)} chars)"
 
     if kind == "store_override":
@@ -654,13 +661,21 @@ def _process_job(job: dict) -> str:
     if kind == "analyse_headline":
         from scripts.headlines import analyse_headline
 
-        result = analyse_headline(payload["key"], notify=bool(payload.get("notify", True)))
+        result = analyse_headline(
+            payload["key"],
+            notify=bool(payload.get("notify", True)),
+            reply_via=payload.get("reply_via"),
+        )
         return json.dumps(result)
 
     if kind == "analyse_email":
         from scripts.email_sweep import analyse_email
 
-        result = analyse_email(payload["key"], notify=bool(payload.get("notify", True)))
+        result = analyse_email(
+            payload["key"],
+            notify=bool(payload.get("notify", True)),
+            reply_via=payload.get("reply_via"),
+        )
         return json.dumps(result)
 
     if kind == "analyse_inbox_file":
@@ -698,6 +713,9 @@ def _process_job(job: dict) -> str:
         msg = research_readthrough(result, stored_path.name)
         if payload.get("notify", True):
             telegram_send_markdownish_html(msg)
+            from scripts.notify import route_reply
+
+            route_reply(payload.get("reply_via"), msg)
         return f"analysed inbox file {stored_path.name}"
 
     if kind == "confirm_pending":

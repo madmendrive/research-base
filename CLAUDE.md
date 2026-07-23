@@ -376,6 +376,8 @@ Start-Process -FilePath $py -ArgumentList "bot.py" -WorkingDirectory $root -Wind
 Start-Process -FilePath $py -ArgumentList "main.py worker --exclude-kinds analyst_question" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\worker.out.log" -RedirectStandardError "$root\worker.err.log"
 Start-Process -FilePath $py -ArgumentList "main.py worker --kinds analyst_question" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\worker_interactive.out.log" -RedirectStandardError "$root\worker_interactive.err.log"
 Start-Process -FilePath $py -ArgumentList "main.py heartbeat" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\heartbeat.out.log" -RedirectStandardError "$root\heartbeat.err.log"
+# Discord bot (5th service; needs DISCORD_BOT_TOKEN + DISCORD_ALLOWED_USER_IDS in .env)
+Start-Process -FilePath $py -ArgumentList "discord_bot.py" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput "$root\discord_bot.out.log" -RedirectStandardError "$root\discord_bot.err.log"
 
 # Bot (foreground, for debugging)
 cd ~/research-pipeline; python bot.py
