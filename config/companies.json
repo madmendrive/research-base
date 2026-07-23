@@ -1799,5 +1799,13 @@
   "SIVE": {
     "name": "Sivers Semiconductor (inferred)",
     "market": "US"
+  },
+  "TRT": {
+    "name": "TRT (?)",
+    "market": "US"
+  },
+  "JTEC": {
+    "name": "JTEC Corporation",
+    "market": "JP"
   }
 }
