@@ -254,6 +254,9 @@ def _deliver(message: str) -> None:
     delivered = False
     try:
         delivered = bool(telegram_send_markdownish_html(message))
+        from scripts.notify import discord_send
+
+        discord_send("research_sweep", message)
     except Exception:
         log.exception("combined digest send failed")
     if not delivered:

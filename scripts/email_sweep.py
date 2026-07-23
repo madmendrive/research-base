@@ -19,7 +19,7 @@ from pathlib import Path
 
 from scripts import kb
 from scripts.jobs import enqueue_job
-from scripts.notify import telegram_send, telegram_send_markdownish_html
+from scripts.notify import discord_send, telegram_send, telegram_send_markdownish_html
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -700,7 +700,9 @@ def email_sweep(
         from scripts.combined_digest import submit_part
         submit_part("email", _email_section_text(digest_items, stats))
     elif notify and digest_items:
-        telegram_send_markdownish_html(_format_email_digest(digest_items, stats))
+        digest_text = _format_email_digest(digest_items, stats)
+        telegram_send_markdownish_html(digest_text)
+        discord_send("research_sweep", digest_text)
     elif notify and stats["new"]:
         telegram_send(
             f"Email sweep: {stats['new']} new message(s), but none were research "

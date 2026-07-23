@@ -292,8 +292,14 @@ def _execute_analyst_tool(name: str, tool_input: dict) -> str:
 
 ANALYST_WEB_TOOL_PROMPT = """
 
-Live web tool:
-You have a `web_search` tool. The local KB and structured research memory remain
+Live web tools:
+You have a `web_search` tool and a `web_fetch` tool. When the user pastes a URL
+into the chat, ALWAYS open it with `web_fetch` before answering — never claim
+you cannot open links, and never answer about a linked page from memory or from
+search snippets alone. Also use `web_fetch` to read a page surfaced by
+`web_search` when the snippet is not enough to support the claim you need.
+
+The local KB and structured research memory remain
 your source of truth and the backbone of every answer — especially for estimates,
 assumptions, statistics, price targets, forecasts, and any specific number. Build
 the answer from the KB first.
@@ -344,6 +350,19 @@ def _analyst_web_tool() -> dict:
             "type": "approximate",
             "timezone": os.environ.get("ANALYST_WEB_TZ", "Asia/Hong_Kong"),
         },
+    }
+
+
+def _analyst_web_fetch_tool() -> dict:
+    # web_fetch opens a specific URL — required for links the user pastes into
+    # the chat (web_search cannot reliably retrieve an exact page). Only URLs
+    # already present in the conversation or surfaced by web_search can be
+    # fetched; results run server-side like web_search.
+    return {
+        "type": os.environ.get("ANALYST_WEB_FETCH_TOOL_TYPE", "web_fetch_20260209"),
+        "name": "web_fetch",
+        "max_uses": max(1, _env_int("ANALYST_WEB_FETCH_MAX_USES", 5)),
+        "max_content_tokens": max(1000, _env_int("ANALYST_WEB_FETCH_MAX_TOKENS", 25000)),
     }
 
 
@@ -498,7 +517,7 @@ def _call_claude_agentic(prompt: str, max_tokens: int = 8000, history=None) -> s
         max_retries=_env_int("ANALYST_PROVIDER_MAX_RETRIES", 1),
     )
     native_web = _native_web_enabled()
-    tools = list(ANALYST_TOOLS) + ([_analyst_web_tool()] if native_web else [])
+    tools = list(ANALYST_TOOLS) + ([_analyst_web_tool(), _analyst_web_fetch_tool()] if native_web else [])
     system_text = ANALYST_SYSTEM_PROMPT + ANALYST_TOOLS_PROMPT + (ANALYST_WEB_TOOL_PROMPT if native_web else "")
     system = cached_system_block(system_text)
     messages = _history_messages(history) + [{"role": "user", "content": prompt}]

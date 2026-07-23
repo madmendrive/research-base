@@ -126,10 +126,14 @@ def format_scan_digest(items: list[dict]) -> str:
 
 
 def send_scan_digest(items: list[dict]) -> None:
-    """Send the inbox-scan digest to Telegram (standalone, non-combined runs)."""
+    """Send the inbox-scan digest (standalone, non-combined runs)."""
     if not items:
         return
-    telegram_send_markdownish_html(format_scan_digest(items))
+    from scripts.notify import discord_send
+
+    text = format_scan_digest(items)
+    telegram_send_markdownish_html(text)
+    discord_send("research_sweep", text)
 
 
 # ---------------------------------------------------------------------------

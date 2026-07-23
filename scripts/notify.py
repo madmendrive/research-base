@@ -19,17 +19,49 @@ RETRY_BACKOFF_SECONDS = 2.0
 MAX_RETRY_AFTER_SECONDS = 60.0
 
 
+def _split_long_block(block: str, size: int) -> list[str]:
+    """Split a paragraph longer than `size` on line, then word boundaries.
+
+    Only a single unbroken run longer than `size` (no spaces/newlines) gets a
+    hard mid-run cut — normal prose never splits mid-word.
+    """
+    pieces, buf = [], ""
+    for line in block.split("\n"):
+        candidate = f"{buf}\n{line}" if buf else line
+        if len(candidate) <= size:
+            buf = candidate
+            continue
+        if buf:
+            pieces.append(buf)
+            buf = ""
+        while len(line) > size:
+            cut = line.rfind(" ", 0, size + 1)
+            if cut <= 0:
+                cut = size
+            pieces.append(line[:cut].rstrip())
+            line = line[cut:].lstrip()
+        buf = line
+    if buf:
+        pieces.append(buf)
+    return pieces
+
+
 def chunks(text: str, size: int = 3800) -> list[str]:
     if len(text) <= size:
         return [text]
     out, buf = [], ""
     for para in text.split("\n\n"):
         if len(para) > size:
+            # Merge any buffered short paragraphs into the long block so they
+            # don't go out as a tiny standalone message.
             if buf:
-                out.append(buf)
+                para = f"{buf}\n\n{para}"
                 buf = ""
-            for i in range(0, len(para), size):
-                out.append(para[i:i + size])
+            pieces = _split_long_block(para, size)
+            # Keep the last sub-piece in the buffer so following paragraphs
+            # pack with it instead of leaving a tiny orphan message.
+            out.extend(pieces[:-1])
+            buf = pieces[-1] if pieces else ""
             continue
         if len(buf) + len(para) + 2 > size:
             if buf:
@@ -167,6 +199,65 @@ def telegram_send_markdownish_html(
         ):
             ok = False
     return ok
+
+
+# Discord hard limit is 2000 chars per message; stay under it.
+DISCORD_CHUNK_SIZE = 1900
+
+
+def discord_send(kind: str, text: str) -> bool:
+    """Mirror text to the Discord webhook configured for `kind`.
+
+    The webhook URL is read from env DISCORD_WEBHOOK_<KIND> (e.g. kind
+    "tech_brief" -> DISCORD_WEBHOOK_TECH_BRIEF). Discord renders markdown
+    (**bold**, # headings, [label](url)) natively, so pass the markdown form
+    of a digest, not the Telegram-HTML form.
+
+    Discord mirroring is optional: returns True when no webhook is configured
+    so callers never treat "not set up" as a delivery failure. Failures are
+    logged, never raised.
+    """
+    url = (os.environ.get(f"DISCORD_WEBHOOK_{kind.upper()}") or "").strip()
+    if not url:
+        return True
+    ok = True
+    for piece in chunks(text, size=DISCORD_CHUNK_SIZE):
+        if not _discord_post(url, piece):
+            ok = False
+    return ok
+
+
+def _discord_post(url: str, content: str) -> bool:
+    """POST one webhook message; retry 429/5xx/network errors. True on delivered."""
+    last_detail = ""
+    for attempt in range(1, MAX_SEND_ATTEMPTS + 1):
+        try:
+            resp = requests.post(url, json={"content": content}, timeout=15)
+        except Exception as e:
+            last_detail = f"network error: {e}"
+            if attempt < MAX_SEND_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+            continue
+        if resp.status_code in (200, 204):
+            return True
+        if resp.status_code == 429:
+            try:
+                wait = min(float(resp.json().get("retry_after", RETRY_BACKOFF_SECONDS)),
+                           MAX_RETRY_AFTER_SECONDS)
+            except Exception:
+                wait = RETRY_BACKOFF_SECONDS
+            last_detail = f"429 rate limited (retry_after={wait:.0f}s)"
+            if attempt < MAX_SEND_ATTEMPTS:
+                time.sleep(wait)
+            continue
+        last_detail = f"HTTP {resp.status_code}: {resp.text[:200]}"
+        if 500 <= resp.status_code < 600 and attempt < MAX_SEND_ATTEMPTS:
+            time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+            continue
+        break  # other 4xx will not succeed on retry
+    log.error("discord webhook send failed after %d attempt(s): %s (%d chars)",
+              attempt, last_detail, len(content))
+    return False
 
 
 def telegram_send_with_buttons(

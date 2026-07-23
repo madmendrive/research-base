@@ -179,13 +179,20 @@ def _tech_brief_status_text() -> str:
 _BRIEF_TOPIC_RE = re.compile(r"\b(tech brief|headlines?)\b", re.IGNORECASE)
 _ANALYSIS_INTENT_RE = re.compile(
     r"\b(analy[sz]e|analy[sz]is|summari[sz]e|thoughts?|implications?|impact|"
-    r"read[\s-]?through|interpret|make of|view on|take on|read on|mean(s|ing)?\s+for)\b",
+    r"read[\s-]?through|interpret|make of|view on|take on|read on|mean(s|ing)?\s+for|"
+    r"comment|compare|chronolog\w*|incremental|history|evolution|"
+    r"list\s+(?:all|the|every)|in\s+the\s+last\s+\d|over\s+the\s+(?:last|past))\b",
     re.IGNORECASE,
 )
+# Operational terms only. Generic words (last/latest/recent/did/when/why)
+# were removed 2026-07-23: they matched research phrasing like "in the last
+# 2 months" and sent substantive questions to the status dump. A status
+# question that misses this fast-path still gets answered — the agentic
+# analyst has the pipeline_status tool — but a research question that
+# false-positives here gets a useless status dump.
 _STATUS_INTENT_RE = re.compile(
-    r"\b(status|ran|run|running|did|does|has|have|when|last|latest|recent|"
-    r"update[ds]?|sweep|arrive[ds]?|generate[ds]?|schedule[ds]?|missed|pending|"
-    r"queue[ds]?|finish(ed)?|complete[ds]?|fail(ed|ing)?|why)\b",
+    r"\b(status|ran|run(ning)?|sweep|arrive[ds]?|generate[ds]?|schedule[ds]?|"
+    r"missed|pending|queue[ds]?|finish(ed)?|complete[ds]?|fail(ed|ing)?)\b",
     re.IGNORECASE,
 )
 
@@ -207,28 +214,10 @@ def _is_tech_brief_status_query(text: str) -> bool:
 
 
 def _chunk(text: str, size: int = 3800) -> list[str]:
-    """Split text on paragraph boundaries to fit Telegram's 4096-char message limit."""
-    if len(text) <= size:
-        return [text]
-    chunks, buf = [], ""
-    for para in text.split("\n\n"):
-        if len(para) > size:
-            # Single huge paragraph — hard-split
-            if buf:
-                chunks.append(buf)
-                buf = ""
-            for i in range(0, len(para), size):
-                chunks.append(para[i:i + size])
-            continue
-        if len(buf) + len(para) + 2 > size:
-            if buf:
-                chunks.append(buf)
-            buf = para
-        else:
-            buf = f"{buf}\n\n{para}" if buf else para
-    if buf:
-        chunks.append(buf)
-    return chunks
+    """Split text to fit Telegram's 4096-char message limit (word-boundary aware)."""
+    from scripts.notify import chunks
+
+    return chunks(text, size=size)
 
 
 async def _send_long(update: Update, text: str, parse_mode: str | None = None) -> None:

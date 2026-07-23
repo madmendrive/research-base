@@ -19,7 +19,7 @@ from requests.exceptions import SSLError
 
 from scripts import kb
 from scripts.llm_provider import untrusted_block
-from scripts.notify import telegram_send, telegram_send_markdownish_html
+from scripts.notify import discord_send, telegram_send, telegram_send_markdownish_html
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -130,6 +130,88 @@ MATERIAL_KEYWORDS = [
     "rate cut",
     "inflation",
     "geopolitical",
+]
+
+# Fundamental-news signals: capacity, orders, technology roadmaps, supply
+# chain pricing/shortages, industry data. Boosted so these outrank
+# stock-price-action headlines in the digest.
+FUNDAMENTAL_KEYWORDS = [
+    "capacity",
+    "expansion",
+    "expand",
+    "orders",
+    "order visibility",
+    "roadmap",
+    "advanced packaging",
+    "advanced-node",
+    "advanced node",
+    "supply chain",
+    "shortage",
+    "short supply",
+    "price hike",
+    "pull-in",
+    "qualification",
+    "mass production",
+    "ramp",
+    "wafer",
+    "substrate",
+    "interposer",
+    "silicon photonics",
+    "2nm",
+    "3nm",
+    "1.4nm",
+    "acquisition",
+    "acquired",
+    "machinery",
+    "equipment",
+    "monthly revenue",
+    "monthly sales",
+    "quarterly earnings",
+    "quarterly results",
+    "quarterly revenue",
+    "earnings",
+    "revenue",
+    "guidance",
+    "gross margin",
+    "outlook",
+    # Chinese trade-press equivalents (UDN/CTEE/cnyes headlines)
+    "擴產",
+    "擴廠",
+    "產能",
+    "訂單",
+    "接單",
+    "拉貨",
+    "機器設備",
+    "設備",
+    "封測",
+    "營收",
+    "月營收",
+    "季報",
+    "財報",
+    "法說",
+    "財測",
+    "毛利率",
+    "獲利",
+    "急單",
+    "缺貨",
+    "漲價",
+    "調漲",
+    "供應鏈",
+    "製程",
+    "先進封裝",
+    "量產",
+    "投產",
+    "奈米",
+]
+
+# Stock-price-action patterns: headlines whose subject is the share price
+# move itself (surge/rally/price target/market cap/index chatter) rather
+# than an underlying business development. Penalized unless the title also
+# carries a fundamental signal.
+PRICE_ACTION_TITLE_PATTERNS = [
+    re.compile(r"\b(?:shares?|stocks?)\b.{0,40}\b(?:surge[ds]?|jump(?:s|ed)?|rall(?:y|ies|ied)|soar(?:s|ed)?|slump(?:s|ed)?|plunge[ds]?|climb(?:s|ed)?|slide[ds]?|tumble[ds]?|gain(?:s|ed)?|fell|fall(?:s)?|drop(?:s|ped)?|rise[sn]?|rose|hit(?:s)?)\b", re.I),
+    re.compile(r"\b(?:price target|target price|market cap|52-week|premarket|after.?hours|top gainers?|top losers?|analyst upgrade|analyst downgrade)\b", re.I),
+    re.compile(r"股價|漲停|跌停|目標價|買超|賣超|外資|投信|法人|融資|早盤|盤中|收盤|台股|大盤|市值|除息|填息"),
 ]
 
 HARD_TECH_SIGNAL_TERMS = (
@@ -1156,6 +1238,15 @@ def _score_item(item: dict) -> tuple[int, dict]:
     for kw in MATERIAL_KEYWORDS:
         if kw in low:
             score += 2
+    # Prioritize fundamental news (capacity/orders/roadmaps/supply chain)
+    # over stock-price-action headlines.
+    fundamental_hits = sum(1 for kw in FUNDAMENTAL_KEYWORDS if kw in low)
+    score += min(fundamental_hits * 2, 6)
+    title_l = title.lower()
+    title_is_price_action = any(p.search(title) for p in PRICE_ACTION_TITLE_PATTERNS)
+    title_has_fundamental = any(kw in title_l for kw in FUNDAMENTAL_KEYWORDS)
+    if title_is_price_action and not title_has_fundamental:
+        score -= 4
     source = (item.get("source") or "").lower()
     if any(s in source for s in ("bloomberg", "reuters", "nikkei", "wsj", "financial times", "ft")):
         score += 1
@@ -1461,6 +1552,7 @@ RULES:
 4. summary is exactly two short sentences where possible. Use Article text when present; otherwise use the headline and RSS description. Summarize the underlying news adequately: who/what happened, important numbers or counterparties, and why it matters for tech/semis/AI infrastructure.
 5. Skip non-tech / low-signal headlines by omitting their rank.
 6. Focus on semiconductors, foundries, memory, AI servers, substrates, PCB, CCL, IC design, GPUs, smartphones, PCs, data center power/cooling, AI infrastructure.
+6b. PRIORITIZE FUNDAMENTAL NEWS: monthly revenue prints, quarterly earnings/results and guidance, capacity expansions, customer orders and pull-ins, technology roadmaps (nodes, packaging, optics), component shortages and price hikes, supply-chain shifts, M&A/equipment purchases, and industry data (market sizing, share, forecasts). For revenue/earnings prints, lead with the actual numbers (YoY/MoM growth, margins, guidance). SKIP headlines whose only content is stock-price action — shares up/down, price targets, analyst rating changes, market-cap milestones, index or fund-flow chatter — by omitting their rank, unless the article also reports a fundamental development (then summarize the fundamental development, not the price move).
 7. Do not do a full investment analysis here. This is a lightweight brief only.
 8. Output every key_sentence and summary in English. Translate Chinese, Japanese, Korean, or other non-English source headlines into fluent English. Do not output any Chinese/Japanese/Korean characters.
 
@@ -1496,8 +1588,17 @@ RULES:
                 continue
             rows.append({"rank": rank, "key_sentence": key_sentence, "summary": summary})
         by_rank = _rows_by_rank(rows)
-        completed = [_clean_row_for_item(item, by_rank.get(int(item["rank"]))) for item in items]
-        completed = _ensure_english_rows(items, completed, window_hours)
+        if not by_rank:
+            raise ValueError("summarizer returned no usable rows")
+        # Ranks the model omitted are deliberate skips (rules 5/6b: non-tech,
+        # low-signal, or price-action-only). Return rows only for the kept
+        # ranks so the digest drops skipped items entirely instead of
+        # rendering a placeholder fallback row for them. The exception path
+        # below still falls back to rows for every item, so a failed API
+        # call never empties the brief.
+        kept = [item for item in items if int(item["rank"]) in by_rank]
+        completed = [_clean_row_for_item(item, by_rank[int(item["rank"])]) for item in kept]
+        completed = _ensure_english_rows(kept, completed, window_hours)
         completed.sort(key=lambda x: x["rank"])
         return completed
     except Exception:
@@ -1619,7 +1720,9 @@ def _clean_row_for_item(item: dict, row: dict | None) -> dict:
 def _format_markdown_brief(items: list[dict], rows: list[dict]) -> str:
     by_rank = _rows_by_rank(rows)
     parts = []
-    for item in items:
+    # Display index renumbers sequentially (skipped items leave rank gaps);
+    # the /headline_{rank} analyse command keeps the stored rank.
+    for idx, item in enumerate(items, start=1):
         rank = int(item["rank"])
         row = _clean_row_for_item(item, by_rank.get(rank))
         source = item.get("source", "Source")
@@ -1629,14 +1732,16 @@ def _format_markdown_brief(items: list[dict], rows: list[dict]) -> str:
         key_sentence = _normalise_key_sentence(row["key_sentence"])
         summary = _normalise_summary(row.get("summary", ""), fallback=_summary_from_headline(item))
         suffix = f"([{source_label}]({url}) | analyse: /headline_{rank})" if url else f"({source_label} | analyse: /headline_{rank})"
-        parts.append(f"{rank}. **{key_sentence}**\n{summary}\n{suffix}".strip())
+        parts.append(f"{idx}. **{key_sentence}**\n{summary}\n{suffix}".strip())
     return "\n\n".join(parts)
 
 
 def _format_telegram_brief(items: list[dict], rows: list[dict], window_hours: int) -> str:
     by_rank = _rows_by_rank(rows)
     parts = [f"<b>Tech Brief</b> - top {len(items)} headlines from the last {window_hours} hours"]
-    for item in items:
+    # Display index renumbers sequentially (skipped items leave rank gaps);
+    # the /headline_{rank} analyse command keeps the stored rank.
+    for idx, item in enumerate(items, start=1):
         rank = int(item["rank"])
         row = _clean_row_for_item(item, by_rank.get(rank))
         source = escape(str(item.get("source", "Source")))
@@ -1650,7 +1755,7 @@ def _format_telegram_brief(items: list[dict], rows: list[dict], window_hours: in
         else:
             suffix = f"(analyse: /headline_{rank})"
         parts.append(
-            f"{rank}. <b>{key_sentence}</b>\n"
+            f"{idx}. <b>{key_sentence}</b>\n"
             f"{summary}\n"
             f"<i>{source_label}</i> {suffix}".strip()
         )
@@ -1846,14 +1951,32 @@ def headline_sweep(
     _save_state(state)
 
     rows = _tech_brief_rows_with_claude(digest_items, window_hours=window_hours)
-    digest = _format_markdown_brief(digest_items, rows) if digest_items else ""
-    telegram_html = _format_telegram_brief(digest_items, rows, window_hours) if digest_items else ""
+    # Items whose rank the summarizer deliberately skipped (price-action-only
+    # / low-signal) are dropped from the brief, but stay in digest_items so
+    # they're still marked digested below and don't resurface next sweep.
+    kept_ranks = {int(r.get("rank", 0)) for r in rows}
+    brief_items = [i for i in digest_items if int(i["rank"]) in kept_ranks] if rows else digest_items
+    skipped_count = len(digest_items) - len(brief_items)
+    if skipped_count and rows:
+        # Renumber the kept items 1..N so the displayed number and the
+        # /headline_N analyse command agree (the saved digest is the lookup
+        # table for /headline_N, so renumbering both sides is safe; the
+        # sweep state keeps the original ranks).
+        rank_map = {int(item["rank"]): new for new, item in enumerate(brief_items, start=1)}
+        brief_items = [{**item, "rank": rank_map[int(item["rank"])]} for item in brief_items]
+        rows = [
+            {**r, "rank": rank_map[int(r["rank"])]}
+            for r in rows
+            if int(r.get("rank", 0)) in rank_map
+        ]
+    digest = _format_markdown_brief(brief_items, rows) if brief_items else ""
+    telegram_html = _format_telegram_brief(brief_items, rows, window_hours) if brief_items else ""
     digest_path = None
     if digest:
         digest_path = HEADLINE_DIR / f"{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_digest.md"
         digest_path.write_text("# Tech Brief\n\n" + digest + "\n", encoding="utf-8")
         _save_latest_digest(
-            digest_items,
+            brief_items,
             digest,
             rows=rows,
             telegram_html=telegram_html,
@@ -1870,6 +1993,7 @@ def headline_sweep(
         )
     if notify and digest:
         telegram_send(telegram_html, parse_mode="HTML", disable_web_page_preview=True)
+        discord_send("tech_brief", f"# Tech Brief\n\n{digest}")
         # Mark delivered items so fresh-only excludes them from later briefs.
         for item in digest_items:
             k = item.get("key")
@@ -1886,6 +2010,7 @@ def headline_sweep(
         _save_state(state)
     elif notify:
         telegram_send(f"Tech Brief: no new material tech headlines in the last {window_hours} hours.")
+        discord_send("tech_brief", f"Tech Brief: no new material tech headlines in the last {window_hours} hours.")
     return {
         "terms": len(terms),
         "window_hours": window_hours,
@@ -1893,6 +2018,7 @@ def headline_sweep(
         "unique": len(unique),
         "new": len(new_items),
         "digest_items": len(digest_items),
+        "skipped_by_summarizer": skipped_count,
         "raw_path": str(raw_path),
         "digest_path": str(digest_path) if digest_path else None,
         "native_items": len(native_items),

@@ -259,6 +259,12 @@ Other reliability fixes from these sessions:
   errors; batch pairs dedupe (the API rejects duplicate custom_ids).
 - Gmail OAuth token refreshed 2026-07-12 after 5 nights of
   `invalid_grant` email-sweep failures (`python main.py gmail-auth`).
+  Root cause found 2026-07-20 when it recurred exactly 7 days later: the
+  OAuth consent screen was in "Testing" status, which expires refresh
+  tokens after 7 days. Fixed by publishing the app to Production in
+  Google Cloud Console and re-running `gmail-auth` — tokens no longer
+  auto-expire. If `invalid_grant` ever recurs, re-auth AND check the
+  publishing status hasn't reverted.
 - `.claude/settings.json` sets `worktree.baseRef: "head"` — the GitHub
   origin is weeks behind local master; never base work on origin/master.
 - 42 GB pre-migration KB backup deleted 2026-07-12 (health checks clean).
