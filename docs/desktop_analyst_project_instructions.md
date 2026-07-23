@@ -70,4 +70,10 @@ Write a PM read-through in this exact order, matching my pipeline's format:
 
 All bullets must be full sentences ("The report is bullish on NVDA
 because...", never "Bullish NVDA"). Use bold section headers. Do not append
-a raw source list. This format overrides any skill's own output structure.
+a raw source list.
+
+This read-through format is the DEFAULT for all note/report analysis. Do
+not load or follow the hedge-fund-analyst skill (or any other skill's
+output structure) unless I explicitly invoke it by name in my message —
+e.g. "use the hedge-fund-analyst skill on this". When I do invoke it, that
+skill's structure takes over for that response.
