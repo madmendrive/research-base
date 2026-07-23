@@ -140,5 +140,22 @@ def latest_tech_brief() -> str:
     return f"Generated {payload.get('generated_at')}\n\n{payload.get('brief', '')}"
 
 
+def _warmup() -> None:
+    """Page in the heavy machinery (SQLite, FTS, the ~6 GB vector sidecar
+    memmap, the embedding client's TLS handshake) right at server start, so
+    the first real search_kb doesn't pay a cold start. The desktop app
+    launches this server at startup and enforces a per-tool-call timeout;
+    an unwarmed first search once took ~4 minutes and got cancelled."""
+    try:
+        from scripts import kb
+
+        kb.search("warmup query semiconductors", sources="all", limit=1)
+    except Exception:
+        pass  # warmup is best-effort; a real call will surface real errors
+
+
 if __name__ == "__main__":
+    import threading
+
+    threading.Thread(target=_warmup, daemon=True).start()
     mcp.run()
