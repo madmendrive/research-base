@@ -361,6 +361,15 @@ Highlights that change day-to-day behavior:
 - API keys in `.env`: `ANTHROPIC_API_KEY`, `EDINET_API_KEY`, `DART_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`
 - Timezone: Asia/Hong_Kong (HKT)
 - `truststore.inject_into_ssl()` at top of every entry point — Norton MITMs HTTPS on this Windows machine
+- **Claude Code offload** (2026-07-23): background synthesis (study,
+  view_evolution, cross_cut) runs through `claude -p` headless so it bills
+  the operator's Claude subscription instead of API credits (~$60/mo saved).
+  Gated by `CLAUDE_CODE_OFFLOAD` in `.env` (comma list or `all`; unset =
+  all-API). The subprocess env strips ANTHROPIC_API_KEY so the CLI uses the
+  subscription login; any failure (CLI missing, plan usage limit, timeout)
+  falls back silently to the API path — watch worker logs for repeated
+  "fell back to the API path" lines, which mean plan limits are biting.
+  Analyst, triage, extraction, and batch backfills stay on the API by design.
 
 ## Quick reference
 

@@ -652,6 +652,7 @@ def _call_anthropic(
     effort: str | None = None,
     tools=None,
     return_response: bool = False,
+    offload: str | None = None,
 ):
     from scripts.llm_provider import cached_system_block, call_api, get_client
 
@@ -670,6 +671,7 @@ def _call_anthropic(
         effort=effort,
         tools=tools,
         return_response=return_response,
+        offload=offload,
     )
     return result if return_response else result.strip()
 

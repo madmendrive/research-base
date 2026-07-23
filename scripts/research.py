@@ -72,10 +72,10 @@ def _extract_file_text(path):
     return extract_file_text(path, max_chars=MAX_TEXT_CHARS)
 
 
-def _call_api(client, messages, max_tokens=8192, system=None, return_response=False, model=None):
+def _call_api(client, messages, max_tokens=8192, system=None, return_response=False, model=None, offload=None):
     return call_api(client, messages, max_tokens=max_tokens, system=system,
                     return_response=return_response, model=model,
-                    default_model=RESEARCH_MODEL)
+                    default_model=RESEARCH_MODEL, offload=offload)
 
 
 _parse_json_response = parse_json_loose
@@ -295,7 +295,8 @@ def store_research(ticker, file_path):
         author_history_json=author_history,
         summary_json=existing_summary,
     )
-    view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=16384, model=SYNTHESIS_MODEL)
+    view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=16384,
+                               model=SYNTHESIS_MODEL, offload="view_evolution")
     report = merge_analysis_report(note_data, view_evolution)
 
     # Re-save JSON with complete analysis_report
@@ -840,7 +841,8 @@ def analyse_research(ticker, file_path=None, headline=None):
             prompt += "\n--- EXISTING RESEARCH SUMMARY ---\nNo existing research stored for this ticker.\n"
 
         click.echo(f"Analysing headline against research base for {ticker}...")
-        analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=8192, model=SYNTHESIS_MODEL)
+        analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=8192,
+                             model=SYNTHESIS_MODEL, offload="cross_cut")
         click.echo("")
         click.echo(analysis)
         return
@@ -877,7 +879,8 @@ def analyse_research(ticker, file_path=None, headline=None):
 
     click.echo("Running comparative analysis...")
     analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]))
+                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]),
+                         offload="cross_cut")
 
     # d. Print to terminal
     click.echo("")

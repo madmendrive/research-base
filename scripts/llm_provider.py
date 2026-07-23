@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -160,9 +162,79 @@ def parse_json_loose(text: str):
 MAX_TOKENS_ESCALATION_CAP = 32_768
 
 
+# ---------------------------------------------------------------------------
+# Claude Code offload — run background synthesis through the operator's
+# Claude subscription (claude -p, headless) instead of API credits.
+#
+# Enabled per-call by passing offload="<tag>" to call_api when the tag is
+# listed in env CLAUDE_CODE_OFFLOAD (comma-separated, or "all"). Only plain
+# single-shot text calls are eligible (no tools, no return_response, no
+# multi-turn history); anything else — and any failure: CLI missing, plan
+# usage limit, timeout, bad output — falls through to the normal API path,
+# so offload can never lose a job.
+# ---------------------------------------------------------------------------
+
+def _offload_enabled(tag: str) -> bool:
+    conf = (os.environ.get("CLAUDE_CODE_OFFLOAD") or "").strip().lower()
+    if not conf or conf in {"0", "false", "no", "off"}:
+        return False
+    tags = {t.strip() for t in conf.split(",") if t.strip()}
+    return "all" in tags or (tag or "").lower() in tags
+
+
+def claude_code_call(messages, system=None, model="claude-opus-4-8",
+                     timeout=900.0) -> str | None:
+    """One non-agentic synthesis call via `claude -p`. Returns text or None.
+
+    The subprocess env drops ANTHROPIC_API_KEY/AUTH_TOKEN — an API key would
+    silently outrank the subscription login and bill credits, defeating the
+    point. Prompt goes via stdin (system text prepended) because cross-cut
+    system blocks can exceed the Windows command-line length limit.
+    """
+    exe = shutil.which("claude")
+    if not exe:
+        return None
+    if any(m.get("role") != "user" or not isinstance(m.get("content"), str)
+           for m in messages):
+        return None  # history / content-block payloads stay on the API path
+    parts = []
+    if isinstance(system, str):
+        parts.append(system)
+    elif system:
+        parts.extend(b.get("text", "") for b in system if isinstance(b, dict))
+    parts.extend(m["content"] for m in messages)
+    prompt = "\n\n".join(p for p in parts if p)
+    cmd = [exe, "-p", "--output-format", "json", "--model", model, "--max-turns", "1"]
+    if exe.lower().endswith((".cmd", ".bat")):
+        cmd = ["cmd", "/c"] + cmd
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+    try:
+        proc = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout, env=env,
+        )
+    except Exception as e:
+        print(f"  claude-code offload error: {type(e).__name__}: {e}")
+        return None
+    if proc.returncode != 0:
+        print(f"  claude-code offload rc={proc.returncode}: {(proc.stderr or proc.stdout)[:300]}")
+        return None
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        print(f"  claude-code offload returned non-JSON output ({len(proc.stdout)} chars)")
+        return None
+    if payload.get("is_error"):
+        print(f"  claude-code offload is_error: {str(payload.get('result'))[:300]}")
+        return None
+    text = (payload.get("result") or "").strip()
+    return text or None
+
+
 def call_api(client, messages, max_tokens=8192, system=None, return_response=False,
              model=None, default_model="claude-opus-4-8", tools=None,
-             thinking=None, effort=None):
+             thinking=None, effort=None, offload=None):
     """Anthropic call, always streamed, with transient retry and truncation
     escalation. Shared by research/macro/thematic and the analyst.
 
@@ -187,6 +259,12 @@ def call_api(client, messages, max_tokens=8192, system=None, return_response=Fal
     parsing downstream.
     """
     chosen_model = model or default_model
+    if (offload is not None and tools is None and not return_response
+            and _offload_enabled(offload)):
+        offloaded = claude_code_call(messages, system=system, model=chosen_model)
+        if offloaded:
+            return offloaded
+        print(f"  claude-code offload for {offload!r} fell back to the API path")
     current_max = max_tokens
 
     def _escalate():

@@ -429,6 +429,7 @@ def _call_model(prompt: str, config: StudyConfig) -> str:
         max_retries=0,
         thinking=thinking,
         effort=effort,
+        offload="study",
     )
 
 

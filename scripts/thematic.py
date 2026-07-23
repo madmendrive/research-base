@@ -86,10 +86,10 @@ def _extract_file_text(path):
     return extract_file_text(path, max_chars=MAX_TEXT_CHARS)
 
 
-def _call_api(client, messages, max_tokens=8192, system=None, return_response=False, model=None):
+def _call_api(client, messages, max_tokens=8192, system=None, return_response=False, model=None, offload=None):
     return call_api(client, messages, max_tokens=max_tokens, system=system,
                     return_response=return_response, model=model,
-                    default_model=RESEARCH_MODEL)
+                    default_model=RESEARCH_MODEL, offload=offload)
 
 
 _parse_json_response = parse_json_loose
@@ -435,7 +435,8 @@ def store_thematic(theme, file_paths):
             author_history_json=source_history,
             summary_json=existing_summary,
         )
-        view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=16384, model=SYNTHESIS_MODEL)
+        view_evolution = _call_api(client, [{"role": "user", "content": second_prompt}], max_tokens=16384,
+                                   model=SYNTHESIS_MODEL, offload="view_evolution")
         report = merge_analysis_report(note_data, view_evolution)
 
         # Re-save JSON with complete analysis_report
@@ -842,7 +843,8 @@ def analyse_thematic(theme, file_path):
 
     click.echo("Running cross-reference analysis...")
     analysis = _call_api(client, [{"role": "user", "content": prompt}], max_tokens=16384,
-                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]))
+                         model=SYNTHESIS_MODEL, system=cached_document_block(text[:30000]),
+                         offload="cross_cut")
 
     # e. Print
     click.echo("")

@@ -195,7 +195,7 @@ def run_second_pass(json_path: str | Path, *, primary_type: str, subject: str,
     client = research.Anthropic(max_retries=3, timeout=600.0)
     view_evolution = research._call_api(
         client, [{"role": "user", "content": prep["prompt"]}],
-        max_tokens=16384, model=research.SYNTHESIS_MODEL)
+        max_tokens=16384, model=research.SYNTHESIS_MODEL, offload="view_evolution")
     return apply_second_pass(
         json_path, primary_type=primary_type, subject=subject,
         category=category, view_evolution=view_evolution, rebuild=True)
