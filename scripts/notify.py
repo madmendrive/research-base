@@ -201,8 +201,10 @@ def telegram_send_markdownish_html(
     return ok
 
 
-# Discord hard limit is 2000 chars per message; stay under it.
-DISCORD_CHUNK_SIZE = 1900
+# Discord hard limit is 2000 chars per message (inclusive).
+DISCORD_CHUNK_SIZE = 2000
+# SUPPRESS_EMBEDS message flag: no link-preview embeds on webhook messages.
+DISCORD_SUPPRESS_EMBEDS = 1 << 2
 
 
 def discord_send(kind: str, text: str) -> bool:
@@ -232,7 +234,11 @@ def _discord_post(url: str, content: str) -> bool:
     last_detail = ""
     for attempt in range(1, MAX_SEND_ATTEMPTS + 1):
         try:
-            resp = requests.post(url, json={"content": content}, timeout=15)
+            resp = requests.post(
+                url,
+                json={"content": content, "flags": DISCORD_SUPPRESS_EMBEDS},
+                timeout=15,
+            )
         except Exception as e:
             last_detail = f"network error: {e}"
             if attempt < MAX_SEND_ATTEMPTS:
