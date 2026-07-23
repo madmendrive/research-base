@@ -57,10 +57,15 @@ Write a PM read-through in this exact order, matching my pipeline's format:
    versus existing research, assumptions, or my prior likely view — compare
    explicitly against the KB (sellside/Substack research, company earnings
    or guidance, my own notes) using the research-kb tools. Explain
-   implications for covered stocks, sectors, and themes. Identify the bear
-   case, contradictions, or evidence that would invalidate the report's
-   view. List what to watch next: datapoints, earnings-call questions,
-   catalysts, contradictory evidence.
+   implications for covered stocks, sectors, and themes. Name the direct
+   beneficiaries and the stocks most at risk, as stated by the content or
+   implied by it, and explain the mechanism for each (why this content
+   helps or hurts that specific name); distinguish clearly between what the
+   author states and what you are inferring, and say so if no clear
+   beneficiaries or at-risk names exist rather than forcing candidates.
+   Identify the bear case, contradictions, or evidence that would
+   invalidate the report's view. List what to watch next: datapoints,
+   earnings-call questions, catalysts, contradictory evidence.
 5. **Author-recommended trades**. Only trades the author explicitly touched
    on — never infer potential trades. For each: the asset, strategy,
    timeframe, entry levels, stops, validation/invalidation conditions, and

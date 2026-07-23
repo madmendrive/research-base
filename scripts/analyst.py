@@ -1295,7 +1295,7 @@ Write this Telegram-ready structure:
 2. Freshness / novelty check
 3. What changed
 4. Compare vs existing KB
-5. Implications for covered stocks/themes
+5. Implications for covered stocks/themes — name the direct beneficiaries and the stocks most at risk (stated or implied), with the mechanism for each; flag which are stated vs your inference
 6. What to watch next
 
 Do not append a raw source list.
@@ -1315,7 +1315,7 @@ Structured research memory:
 Write a concise ranked Telegram read-through. For each material headline, cover:
 - What changed
 - Whether this is new or confirms/challenges the existing KB
-- Implications for covered stocks/themes
+- Implications for covered stocks/themes, naming direct beneficiaries and most-at-risk names (stated or implied) with the mechanism
 - What to watch next
 
 Skip low-signal items. Do not append a raw source list.
@@ -1400,7 +1400,7 @@ Produce a Telegram-ready read-through:
    shorten it. Be specific with every number, name, ticker, and timeframe.
 2. What changed / what's incremental versus what we already believed.
 3. Compare vs existing KB (prior sellside/Substack views, company guidance, your notes) — confirms / challenges / updates each.
-4. Implications for covered stocks/themes.
+4. Implications for covered stocks/themes — name the direct beneficiaries and the stocks most at risk, as stated or implied by the content, with the mechanism for each; flag which are stated vs your inference.
 5. What to watch next.
 
 Sections 2-5 stay concise and investment-focused; only Section 1 is expansive.
@@ -1491,6 +1491,7 @@ Write a Telegram-ready PM read-through in this exact order:
    - Explain what changed versus existing research, assumptions, or the user's prior likely view.
    - Compare explicitly versus the local KB, including sellside/Substack research, company earnings or guidance, and user notes where available.
    - Explain implications for covered stocks, sectors, and themes.
+   - Name the direct beneficiaries and the stocks most at risk, as stated by the content or implied by it, and explain the mechanism for each (why this content helps or hurts that specific name). Distinguish clearly between what the author states and what you are inferring. If no clear beneficiaries or at-risk names exist, say so rather than forcing candidates.
    - Identify the bear case, contradictions, or evidence that would invalidate the report's view.
    - List what to watch next, including datapoints, earnings-call questions, catalysts, and contradictory evidence.
 5. **Author-recommended trades**.
