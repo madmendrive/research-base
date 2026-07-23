@@ -493,8 +493,13 @@ def _process_job(job: dict) -> str:
         from scripts.analyst import answer_question
 
         question = payload["question"]
+        # One conversation thread across platforms: when a canonical user id
+        # is configured, history load + logging key off it regardless of
+        # whether the question came from Telegram or Discord.
+        user_key = os.environ.get("ANALYST_CANONICAL_USER_ID") or payload.get("user_id")
+        channel = "discord" if (payload.get("reply_via") or {}).get("channel") == "discord" else "telegram"
         try:
-            answer = answer_question(question, user_id=payload.get("user_id"))
+            answer = answer_question(question, user_id=user_key)
         except Exception as e:
             telegram_send(
                 f"Analyst question failed: {type(e).__name__}: {e}\n\nQuestion: {question[:300]}"
@@ -503,7 +508,7 @@ def _process_job(job: dict) -> str:
         try:
             from scripts.learning import log_interaction
 
-            log_interaction(question, answer, channel="telegram", user_id=payload.get("user_id"))
+            log_interaction(question, answer, channel=channel, user_id=user_key)
         except Exception:
             pass
         reply_text = f"**Q:** {question}\n\n{answer}"

@@ -107,6 +107,29 @@ def theme_summary(theme: str) -> str:
 
 
 @mcp.tool()
+def recent_analyst_conversations(limit: int = 6) -> str:
+    """Recent Q&A turns between the user and their Telegram/Discord analyst
+    bot (last 7 days, oldest first). Use when the user refers to something
+    'the analyst said' or a conversation they had on another surface. Note:
+    conversations in this desktop app are NOT in this log — only bot Q&A."""
+    import os as _os
+
+    from scripts.learning import recent_interactions
+
+    user = (_os.environ.get("ANALYST_CANONICAL_USER_ID")
+            or (_os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "").split(",")[0].strip() or None))
+    turns = recent_interactions(
+        user, limit=max(1, min(int(limit), 20)), max_age_minutes=7 * 24 * 60,
+    )
+    if not turns:
+        return "No recent analyst conversations in the last 7 days."
+    out = []
+    for q, a in turns:
+        out.append(f"Q: {q[:600]}\nA: {a[:2500]}")
+    return "\n\n---\n\n".join(out)
+
+
+@mcp.tool()
 def latest_tech_brief() -> str:
     """The most recent Tech Brief (ranked semiconductor/AI supply-chain
     headlines with summaries). Use for 'what happened today/recently'."""
