@@ -1807,5 +1807,10 @@
   "JTEC": {
     "name": "JTEC Corporation",
     "market": "JP"
+  },
+  "VPG": {
+    "name": "Vishay Precision Group",
+    "market": "US",
+    "sec_cik": "0001487952"
   }
 }
